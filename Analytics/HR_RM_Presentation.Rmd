@@ -23,46 +23,6 @@ library(gbm)
 library(dplyr)
 library(nnet)
 library(highcharter)
-
-#bring in data
-
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
-names(data)
-refcols <- c("left")
-#bringing respnonse variable 'left' to the end of the dataframe
-data <- data[, c(setdiff(names(data), refcols), refcols )]
-names(data)
-
-#look for categorical variables... I will convert them to factor
-head(data)
-# data$sales<-as.factor(data$sales)
-# data$salary<-as.factor(data$salary)
-# data$left<-as.factor(data$left)
-# data$number_project<-as.factor(data$number_project)
-data$salary<-as.numeric(factor(data$salary))
-data$sales<-as.numeric(factor(data$sales))
-data<-as.data.frame(apply(data, 2, function(x){
-  as.numeric(x)
-}))
-#Check for NA values
-nrow(data)
-data <- na.omit(data)
-nrow(data)#same as before...so no NA values in the dataset
-#create test and training sets
-set.seed(1)
-train <- sample(1:nrow(data),.8*nrow(data))
-training <- data[train,]
-#final number of train set
-dim(training)
-#select all data which is not train for test
-test <- data[-train,]
-#final number of test set
-dim(test)
-
-#test records 'left' column
-actual.left<-test$left
-
-
 ```
 
 ## Project Overview
@@ -128,8 +88,6 @@ summary(data)
 
 We see that variables Sales and Salary are categorical, so they will need to be converted
 to factors.
-
-
 
 
 ## Data Exploration: Categorical Variables
@@ -227,21 +185,209 @@ hcboxplot(x = data$number_project, var= data$sales, var2 = data$left,
     + Use the best classifer to predict.
 
 * Classifiers used:
-  +Logistic Regression
-  +Linear Discirminant Analysis (LDA)
-  +Quadratic Disciminanat Analysis (QDA)
-  +Classification Tree
-  +Bagging Tree
-  +Boosting Tree
-  +Neuaral Networks
+    + Logistic Regression
+    + Linear Discirminant Analysis (LDA)
+    + Quadratic Disciminanat Analysis (QDA)
+    + Classification Tree
+    + Bagging Tree
+    + Boosting Tree
+    + Neuaral Networks
 
-*What's the catch:Bias-Variance Trade-off
-  +More complex models are prone to overfitting: Low Bias but High Variance.
+* What's the catch:Bias-Variance Trade-off
+    + More complex models are prone to overfitting: Low Bias but High Variance.
 
 ![Bias-Variance Trade-off](https://i.stack.imgur.com/r7QFy.png)
 
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+
+refcols <- c("left")
+#bringing respnonse variable 'left' to the end of the dataframe
+data <- data[, c(setdiff(names(data), refcols), refcols )]
+
+#convert data type
+data$salary<-as.numeric(factor(data$salary))
+data$sales<-as.numeric(factor(data$sales))
+data<-as.data.frame(apply(data, 2, function(x){
+  as.numeric(x)
+}))
+#Check for NA values
+data <- na.omit(data)
+#create test and training sets
+set.seed(1)
+train <- sample(1:nrow(data),.8*nrow(data))
+training <- data[train,]
+#select all data which is not train for test
+test <- data[-train,]
+#test records 'left' column
+actual.left<-test$left
+```
+## Machine Learning: Logistic Regression
+```{r, echoe=TRUE}
+#Log---using binomial since it is a Yes or No category
+glm.fit<-glm(left~., family=binomial, data=training)
+summary(glm.fit)
+
+glm.prob<-predict(glm.fit, test,type = "response")
+#####Confusion Matrix
+#assign "No"(0) to all test records
+glm.pred=rep(0,3000)
+#now substitue "Yes"(1) for all varialbes which were over .5
+glm.pred[glm.prob>.5]= 1
+```
+- Confusion Matrix
+```{r, echo=TRUE}
+#finally create confusion matrix
+table(glm.pred,actual.left)
+```
+- Test Error Rate
+```{r, echo=TRUE}
+#calculate test error
+glm.fit.err<-mean(glm.pred!=actual.left)
+glm.fit.err
+```
+## Machine Learning: Linear Discirminant Analysis (LDA)
+```{r, echo=TRUE}
+lda.fit<-lda(left~., data=training)
+lda.pred<-predict(lda.fit, test)
+lda.class<-lda.pred$class
+
+```
+- Confusion Matrix
+```{r, echo=TRUE}
+table(lda.class, actual.left)
+
+```
+- Test Error Rate
+```{r, echo=TRUE}
+lda.fit.err<-mean(lda.class !=actual.left)
+lda.fit.err
+
+```
+## Machine Learning: Quadratic Disciminanat Analysis (QDA)
+```{r, echo=TRUE}
+qda.fit<-qda(left~., data=training)
+qda.pred<-predict(qda.fit, test)
+qda.class<-qda.pred$class
+
+```
+- Confusion Matrix
+```{r, echo=TRUE}
+table(qda.class, actual.left)
+
+```
+- Test Error Rate
+```{r, echo=TRUE}
+qda.fit.err<-mean(qda.class !=actual.left)
+qda.fit.err
+
+```
+## Machine Learning: Classification Tree
+```{r, echo=TRUE}
+tree.fit<-tree(as.factor(left)~., data=training)
+summary(tree.fit)
+plot(tree.fit)
+text(tree.fit,pretty = 0)
+```
+- Confusion Matrix
+```{r, echo=TRUE}
+tree.pred<-predict(tree.fit,test, type="class")
+table(tree.pred, actual.left)
+
+```
+- Test Error Rate
+```{r, echo=TRUE}
+tree.fit.err<-mean(tree.pred !=actual.left)
+tree.fit.err
+```
+-Run Cross Validation to determine Tree size
+```{r, echo=TRUE}
+cv.tree.fit<-cv.tree(tree.fit)
+par(mfrow=c(1,2))
+#you can choose the tree with more pruned see if it helps by this graph
+plot(cv.tree.fit$size,cv.tree.fit$dev, xlim = c(0,12),xlab="Size", ylab = "CV Dev")
+```
+- Here we see that using 10 notes provides us with best tree. We don't prune the tree.
 
 
-    
+
+## Machine Learning: Bagging Tree
+```{r, echo=TRUE}
+set.seed(1)
+bag.tree.fit<-randomForest(as.factor(left)~.,data =training, mtry=9,importance=TRUE)
+bag.tree.fit
+
+```
+- Confusion Matrix
+```{r, echo=TRUE}
+bag.tree.pred<-predict(bag.tree.fit,test, type="class")
+table(bag.tree.pred, actual.left)
+
+```
+- Test Error Rate
+```{r, echo=TRUE}
+bag.tree.fit.err<-mean(bag.tree.pred !=actual.left)
+bag.tree.fit.err
+```
+## Machine Learning: Boosting Tree
+```{r, echo=TRUE}
+boost.tree.fit<-gbm(left~., data=training, distribution="bernoulli", n.trees = 500, interaction.depth=2)
+summary(boost.tree.fit)
 
 
+```
+- Confusion Matrix
+```{r, echo=TRUE}
+boost.tree.pred<-round(predict(boost.tree.fit,test, type="response", n.trees=500))
+table(boost.tree.pred, actual.left)
+
+```
+- Test Error Rate
+```{r, echo=TRUE}
+boost.tree.fit.err<-1-((2260)/(740+2260))
+boost.tree.fit.err
+
+```
+## Machine Learning: Neuaral Networks
+```{r, echo=TRUE}
+ns <- nnet(left ~ .,data=training,size=5,linout=FALSE,decay=5e-4)
+```
+
+```{r, echo=TRUE}
+pr.ns <- predict(ns,test[,1:9])
+pr.nn_2 <- pr.ns*sd(data$left) + mean(data$left)
+mse.ns <- sum((test$left - pr.nn_2)^2)/nrow(pr.nn_2)
+mse.ns
+```
+
+## Machine Learning: Test Error Rate Summary
+```{r, echo=FALSE}
+models<-c("LOG REG","LDA","QDA","CLASS. TREE", "BAGGING",
+          "BOOSTING","NEURAL NETWORKS")
+
+ers.result<-c(glm.fit.err,lda.fit.err,qda.fit.err,tree.fit.err,bag.tree.fit.err,boost.tree.fit.err, mse.ns)
+v3<- 1:7
+ers.table<-data.frame(Classifier= models,ERS = ers.result) %>% arrange(ERS) %>% mutate(Model_Performance_Rank= v3)
+
+ers.table
+
+```
+
+## Machine Learning: Prediction
+```{r, echo=FALSE}
+#FINAL PREDICTION USING BAGGED TREES model and run on data which includes only "Good People"
+
+######################BAGGED TREE
+
+set.seed(1)
+bag.tree.fit<-randomForest(as.factor(left)~.,data =training, mtry=9,importance=TRUE)
+
+summary(bag.tree.fit)
+#here we can see how important are all of the variables 
+bag.tree.pred<-predict(bag.tree.fit,test, type="class")
+
+write.csv(pred.boost.final,"/Users/asurin/Documents/2017_Spring/MSA8150/FINAL_PROJECT/Final_P_LOSS.csv")
+
+```
