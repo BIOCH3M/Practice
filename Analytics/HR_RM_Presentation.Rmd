@@ -156,9 +156,92 @@ hchart(pie.sale, type = "pie")
 ```
 
 </div>
-## Slide with Plot
 
-```{r pressure}
-plot(pressure)
+## Data Exploration: Insight
+
+```{r}
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv") %>% mutate(left = ifelse(left==1, "Left", "Stayed"))
+hcboxplot(x = data$satisfaction_level,var= data$salary, var2 = data$left,
+          outliers = FALSE) %>% 
+  hc_chart(type = "column") %>% # to put box vertical
+  hc_title(text = "Who Left: Satisfaction Level vs Salary") %>% 
+  hc_yAxis(title = list(text = "Satisfaction Level")) %>% 
+  hc_xAxis(title=list(text = "Salary"))
+
+hcboxplot(x = data$satisfaction_level,var= data$sales, var2 = data$left,
+          outliers = FALSE) %>% 
+  hc_chart(type = "column") %>% # to put box vertical
+  hc_title(text = "Who Left: Satisfaction Level vs Sales") %>% 
+  hc_yAxis(title = list(text = "Satisfaction Level")) %>% 
+  hc_xAxis(title=list(text = "Sales"))
+
+hcboxplot(x = data$last_evaluation,var= data$sales, var2 = data$left,
+          outliers = FALSE) %>% 
+  hc_chart(type = "column") %>% # to put box vertical
+  hc_title(text = "Who Left: Last Evaluation vs Sales") %>% 
+  hc_yAxis(title = list(text = "Last Evaluation")) %>% 
+  hc_xAxis(title=list(text = "Sales"))
+
+hcboxplot(x = data$time_spend_company,var= data$sales, var2 = data$left,
+          outliers = FALSE) %>% 
+  hc_chart(type = "column") %>% # to put box vertical
+  hc_title(text = "Who Left: Time with Company vs Sales") %>% 
+  hc_yAxis(title = list(text = "Time with Company")) %>% 
+  hc_xAxis(title=list(text = "Sales"))
+
+hcboxplot(x = data$number_project, var= data$sales, var2 = data$left,
+          outliers = FALSE) %>% 
+  hc_chart(type = "column") %>% # to put box vertical
+  hc_title(text = "Who Left: Number of Projects vs Sales") %>% 
+  hc_yAxis(title = list(text = "Number of Projects")) %>% 
+  hc_xAxis(title=list(text = "Sales"))
+
+
 ```
+
+##Data Exploration: Observation Summary
+
+* Satisfaction Level vs Salary
+    + People who left the company had a median of 0.41 satisfaction level across all salaries compared to a median of 0.69 satisfaction level for those who stayed. However, it is worth noting that people who had high salaries have very similar satisfaction level compared to much broader ranges for those with low and medium salaries.
+  
+* Satisfaction Level vs Sales
+    + The median satisfaction level for those people who have left the company howers around 0.40 whereas those who stayed at 0.67 across all departments. Most unsatisfied individuals who left were part of the accounting department (negative skewed), whereas the most satisfied were in marketing and product management departments (positive skewed). 
+    
+* Last Evaluation vs Sales
+    + Immediately it s improtant to recognize that people who left  recieved higher evaluation scores than those people who stayed for all departments with the exception of Accounting, HR and Marketing.
+    
+* Time with Company vs Sales
+    + Individuals who left spent around 4 years with the exception of the HR department(3 years). Also, we see that people who stayed with the company have a median of 3 years at the company. 
+    
+* Number of Projects vs Sales
+    + We see that the medium number of projects for those that stayed howevers around 4 for all departments with the majority doing at least 3 projects. Individuals who left had greater differences in project invovement, however, the median still howered at 4 with the exception of HR and Marketing departments.
+    
+## Machine Learning: Approach
+
+* This is a classification problem because our response variable 'left' is binary:left (1) or stayed (0).
+    + We can not use linear regression because some of our estimates will be outside the [0,1] interval making them hard to interpret as probabilities.
+
+*General Idea:
+    + Split HR dataset into Train (80%) and Test (20%).
+    + Run different classifers on the Train dataset and evaluate classifer performance based on Test Error Rates.
+    + Use the best classifer to predict.
+
+* Classifiers used:
+  +Logistic Regression
+  +Linear Discirminant Analysis (LDA)
+  +Quadratic Disciminanat Analysis (QDA)
+  +Classification Tree
+  +Bagging Tree
+  +Boosting Tree
+  +Neuaral Networks
+
+*What's the catch:Bias-Variance Trade-off
+  +More complex models are prone to overfitting: Low Bias but High Variance.
+
+![Bias-Variance Trade-off](https://i.stack.imgur.com/r7QFy.png)
+
+
+
+    
+
 
