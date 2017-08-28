@@ -1,0 +1,164 @@
+<style>
+body {
+    overflow: scroll;
+}
+</style>
+---
+title: "HR Presentation"
+output: ioslides_presentation
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+#library
+library(flexdashboard)
+library(tidyverse)
+library(e1071)
+library(MASS)
+library(tree)
+library(randomForest)
+library(gbm)
+library(dplyr)
+library(nnet)
+library(highcharter)
+
+#bring in data
+
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+names(data)
+refcols <- c("left")
+#bringing respnonse variable 'left' to the end of the dataframe
+data <- data[, c(setdiff(names(data), refcols), refcols )]
+names(data)
+
+#look for categorical variables... I will convert them to factor
+head(data)
+# data$sales<-as.factor(data$sales)
+# data$salary<-as.factor(data$salary)
+# data$left<-as.factor(data$left)
+# data$number_project<-as.factor(data$number_project)
+data$salary<-as.numeric(factor(data$salary))
+data$sales<-as.numeric(factor(data$sales))
+data<-as.data.frame(apply(data, 2, function(x){
+  as.numeric(x)
+}))
+#Check for NA values
+nrow(data)
+data <- na.omit(data)
+nrow(data)#same as before...so no NA values in the dataset
+#create test and training sets
+set.seed(1)
+train <- sample(1:nrow(data),.8*nrow(data))
+training <- data[train,]
+#final number of train set
+dim(training)
+#select all data which is not train for test
+test <- data[-train,]
+#final number of test set
+dim(test)
+
+#test records 'left' column
+actual.left<-test$left
+
+
+```
+
+## Project Overview
+
+
+![Why are our best and most experienced employees leaving prematurely?](https://www.kaggle.com/static/images/site-logo.png)
+
+* Analysis of 'Human Resources' Data from kaggle
+    + Data Exploration
+    + Machine Learning Approach
+    + Findings and Discussion
+  
+
+
+## Data Exploration: Given 
+<div class="columns-2">
+
+* Independent Variables:
+    + Satisfaction Level
+    + Last evaluation
+    + Number of projects
+    + Average monthly hours
+    + Time spent at the company
+    + Whether they have had a work accident
+    + Whether they have had a promotion in the last 5 years
+    + Departments (column sales)
+    + Salary
+    
+* Dependent Variable:
+    + Whether the employee has left
+
+
+
+### Number of Records
+
+```{r}
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+numrow <- nrow(data)
+valueBox(numrow, icon = "fa-pencil")
+```
+
+### Number of Variables
+
+```{r,echo=FALSE}
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+numcol<- ncol(data)
+valueBox(numcol, icon = "fa-pencil")
+
+```
+
+</div>
+
+
+## Data Exploration: Data Summary
+
+Quick Look and Summary of HR data
+
+```{r, echo=FALSE}
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+head(data)
+summary(data)
+```
+
+We see that variables Sales and Salary are categorical, so they will need to be converted
+to factors.
+
+
+
+
+## Data Exploration: Categorical Variables
+<div class="columns-2">
+### Salary
+
+```{r}
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+pie.sal<-as.character(data$salary)
+
+l<-list(hchart(pie.sal, type = "pie"))
+
+htmltools::tagList(l)
+
+```
+
+### Sales
+
+```{r}
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+pie.sale<-as.character(data$sales)
+
+hchart(pie.sale, type = "pie")
+```
+
+</div>
+## Slide with Plot
+
+```{r pressure}
+plot(pressure)
+```
+
