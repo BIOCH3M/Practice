@@ -10,6 +10,7 @@ library(nnet)
 library(highcharter)
 #bring in data
 
+
 data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
 names(data)
 refcols <- c("left")
