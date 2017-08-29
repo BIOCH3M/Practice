@@ -304,7 +304,7 @@ tree.fit.err<-mean(tree.pred !=actual.left)
 tree.fit.err
 ```
 - Run Cross Validation to determine Tree size
-- Here we see that using 10 notes provides us with best tree. We don't prune the tree.
+- Here we see that using 10 nodes provides us with best tree. We don't prune the tree.
 ```{r, echo=TRUE}
 cv.tree.fit<-cv.tree(tree.fit)
 par(mfrow=c(1,2))
@@ -455,7 +455,7 @@ tree.fit.err.good<-mean(tree.pred.good !=actual.left.2)
 ######################Bagging Tree
 
 set.seed(1)
-bag.tree.fit.good<-randomForest(as.factor(left)~.,data=training.2, mtry=9,importance=TRUE)
+bag.tree.fit.good<-randomForest(as.factor(left)~.,data=training.2, mtry=9,importance = TRUE)
 #look at the ERROR
 bag.tree.pred.good<-predict(bag.tree.fit.good,test.2, type="class")
 c5<-table(bag.tree.pred.good, actual.left.2)
@@ -518,11 +518,13 @@ finalcom<-ter.table.good %>% inner_join(ter.table, by = "Classifier") %>% arrang
     + Satisfaction Level
     + Time Spent at Company
     + Number of Projects
+    + Average Monthly Hours
 
 
 ```{r, echo=TRUE}
 importance(bag.tree.fit.good)
 ```
+
 
 ## Whats Next?
 
@@ -533,3 +535,12 @@ importance(bag.tree.fit.good)
 * Explore different visualization techniques.
 * Use Python.
 * Use more of the HTML and CSS to make presentation more aesthetically pleasing.
+
+## References
+
+1. Gareth James
+    + An Introduction to Statistical Learning with Applications in R
+2. Trevor Hastie
+    + The Elements of Statistical Learning: Data Mining, Inference, Prediction
+3. Daniel Bauer
+    + Lecture Notes
