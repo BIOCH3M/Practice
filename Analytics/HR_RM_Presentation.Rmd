@@ -23,6 +23,7 @@ library(gbm)
 library(dplyr)
 library(nnet)
 library(highcharter)
+library(plotly)
 ```
 
 ## Project Overview
@@ -98,9 +99,7 @@ to factors.
 data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
 pie.sal<-as.character(data$salary)
 
-l<-list(hchart(pie.sal, type = "pie"))
-
-htmltools::tagList(l)
+hchart(pie.sal, type = "pie")
 
 ```
 
@@ -179,7 +178,7 @@ hcboxplot(x = data$number_project, var= data$sales, var2 = data$left,
 * This is a classification problem because our response variable 'left' is binary:left (1) or stayed (0).
     + We can not use linear regression because some of our estimates will be outside the [0,1] interval making them hard to interpret as probabilities.
 
-*General Idea:
+* General Idea:
     + Split HR dataset into Train (80%) and Test (20%).
     + Run different classifers on the Train dataset and evaluate classifer performance based on Test Error Rates.
     + Use the best classifer to predict.
@@ -196,7 +195,7 @@ hcboxplot(x = data$number_project, var= data$sales, var2 = data$left,
 * What's the catch:Bias-Variance Trade-off
     + More complex models are prone to overfitting: Low Bias but High Variance.
 
-![Bias-Variance Trade-off](https://i.stack.imgur.com/r7QFy.png)
+![](https://i.stack.imgur.com/r7QFy.png)
 
 ```{r, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
@@ -291,7 +290,7 @@ summary(tree.fit)
 plot(tree.fit)
 text(tree.fit,pretty = 0)
 ```
-- Confusion Matrix
+
 ```{r, echo=TRUE}
 tree.pred<-predict(tree.fit,test, type="class")
 table(tree.pred, actual.left)
@@ -302,14 +301,15 @@ table(tree.pred, actual.left)
 tree.fit.err<-mean(tree.pred !=actual.left)
 tree.fit.err
 ```
--Run Cross Validation to determine Tree size
+- Run Cross Validation to determine Tree size
+- Here we see that using 10 notes provides us with best tree. We don't prune the tree.
 ```{r, echo=TRUE}
 cv.tree.fit<-cv.tree(tree.fit)
 par(mfrow=c(1,2))
 #you can choose the tree with more pruned see if it helps by this graph
 plot(cv.tree.fit$size,cv.tree.fit$dev, xlim = c(0,12),xlab="Size", ylab = "CV Dev")
 ```
-- Here we see that using 10 notes provides us with best tree. We don't prune the tree.
+
 
 
 
@@ -360,34 +360,174 @@ pr.ns <- predict(ns,test[,1:9])
 pr.nn_2 <- pr.ns*sd(data$left) + mean(data$left)
 mse.ns <- sum((test$left - pr.nn_2)^2)/nrow(pr.nn_2)
 mse.ns
-```
 
-## Machine Learning: Test Error Rate Summary
+```
 ```{r, echo=FALSE}
 models<-c("LOG REG","LDA","QDA","CLASS. TREE", "BAGGING",
           "BOOSTING","NEURAL NETWORKS")
 
-ers.result<-c(glm.fit.err,lda.fit.err,qda.fit.err,tree.fit.err,bag.tree.fit.err,boost.tree.fit.err, mse.ns)
+ter.result<-c(glm.fit.err,lda.fit.err,qda.fit.err,tree.fit.err,bag.tree.fit.err,boost.tree.fit.err, mse.ns)
 v3<- 1:7
-ers.table<-data.frame(Classifier= models,ERS = ers.result) %>% arrange(ERS) %>% mutate(Model_Performance_Rank= v3)
+ter.table<-data.frame(Classifier= models,TER_ALL = ter.result) %>% arrange(TER_ALL)
 
-ers.table
 
 ```
 
-## Machine Learning: Prediction
-```{r, echo=FALSE}
+## Machine Learning: Prediction Using 'Good People' Only
+
+* I now repeat everything from above using the following restrictions on data:
+    + Last Evaluation >= 0.80
+    + Time with Company >= 3
+    + Number of Projects >= 3
+```{r, echo=FALSE, include = FALSE}
 #FINAL PREDICTION USING BAGGED TREES model and run on data which includes only "Good People"
 
-######################BAGGED TREE
+data.2<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv") %>% filter (last_evaluation >= 0.80 & time_spend_company >= 3 & number_project >= 3)
+
+refcols <- c("left")
+#bringing respnonse variable 'left' to the end of the data.2frame
+data.2 <- data.2[, c(setdiff(names(data.2), refcols), refcols )]
+data.2$salary<-as.numeric(factor(data.2$salary))
+data.2$sales<-as.numeric(factor(data.2$sales))  
+data.2<-as.data.frame(apply(data.2, 2, function(x){
+  as.numeric(x)
+}))
+set.seed(1)
+train <- sample(1:nrow(data.2),.8*nrow(data.2))
+training.2 <- data.2[train,]
+#select all data.2 which is not train for test.2
+test.2 <- data.2[-train,]
+#test.2 records 'left' column
+actual.left.2<-test.2$left
+
+##########################LOG
+
+#Log---using binomial since it is a Yes or No category
+glm.fit.good<-glm(left~., family=binomial, data =training.2)
+# summary(glm.fit.good)
+
+glm.prob.good<-predict(glm.fit.good, test.2,type = "response")
+#####Confusion Matrix
+#assign "No"(0) to all test.2 records
+glm.pred.good=rep(0,889)
+#now substitue "Yes"(1) for all varialbes which were over .5
+glm.pred.good[glm.prob.good>.5]= 1
+#finally create confusion matrix
+c1<-table(glm.pred.good,actual.left.2)
+#calculate test.2 error
+glm.fit.err.good<-mean(glm.pred.good!=actual.left.2)
+
+##########################LDA
+
+lda.fit.good<-lda(left~., data=training.2)
+lda.pred.good<-predict(lda.fit.good, test.2)
+lda.class.good<-lda.pred.good$class
+c2<-table(lda.class.good, actual.left.2)
+#Error
+lda.fit.err.good<-mean(lda.class.good !=actual.left.2)
+# lda.fit.err.good
+
+##########################QDA
+
+qda.fit.good<-qda(left~., data=training.2)
+qda.pred.good<-predict(qda.fit.good, test.2)
+qda.class.good<-qda.pred.good$class
+c3<-table(qda.class.good, actual.left.2)
+#Error
+qda.fit.err.good<-mean(qda.class.good !=actual.left.2)
+# qda.fit.err.good
+
+
+########################## Classification TREES
+tree.fit.good<-tree(as.factor(left)~., data=training.2)
+# summary(tree.fit.good)
+# plot(tree.fit.good)
+# text(tree.fit.good,pretty = 0)
+#look at the ERROR
+tree.pred.good<-predict(tree.fit.good,test.2, type="class")
+c4<-table(tree.pred.good, actual.left.2)
+#Error
+tree.fit.err.good<-mean(tree.pred.good !=actual.left.2)
+# tree.fit.err.good
+
+######################Bagging Tree
 
 set.seed(1)
-bag.tree.fit<-randomForest(as.factor(left)~.,data =training, mtry=9,importance=TRUE)
+bag.tree.fit.good<-randomForest(as.factor(left)~.,data=training.2, mtry=9,importance=TRUE)
+#look at the ERROR
+bag.tree.pred.good<-predict(bag.tree.fit.good,test.2, type="class")
+c5<-table(bag.tree.pred.good, actual.left.2)
+#Error
+bag.tree.fit.err.good<-mean(bag.tree.pred.good !=actual.left.2)
+# bag.tree.fit.err.good
 
-summary(bag.tree.fit)
-#here we can see how important are all of the variables 
-bag.tree.pred<-predict(bag.tree.fit,test, type="class")
+######################BOOSTING
 
-write.csv(pred.boost.final,"/Users/asurin/Documents/2017_Spring/MSA8150/FINAL_PROJECT/Final_P_LOSS.csv")
+#mutate left training.2 to 0 and 1
+#training.2<-mutate(training.2, left.Binary=(ifelse(left=="Yes", 1, 0)))
+#run boost
+boost.tree.fit.good<-gbm(left~., data=training.2, distribution="bernoulli", n.trees = 500, interaction.depth=2)
+# summary(boost.tree.fit.good)
+
+#look at the ERROR
+boost.tree.pred.good<-round(predict(boost.tree.fit.good,test.2, type="response", n.trees=500))
+c6<-table(boost.tree.pred.good, actual.left.2)
+#Error
+boost.tree.fit.err.good<-1-((2260)/(740+2260))
+# boost.tree.fit.err.good
+
+######################################NEURAL NETWORKS
+
+#SINGLE LAYER...
+#single layer
+ns <- nnet(left ~ .,data=training.2,size=5,linout=FALSE,decay=5e-4)
+
+#Predict
+pr.ns.good <- predict(ns,test.2[,1:9])
+pr.nn_2.good <- pr.ns.good*sd(data.2$left) + mean(data.2$left)
+mse.ns.good <- sum((test.2$left - pr.nn_2.good)^2)/nrow(pr.nn_2.good)
+# mse.ns.good
+
+##############################
+models.good<-c("LOG REG","LDA","QDA","CLASS. TREE", "BAGGING",
+          "BOOSTING","NEURAL NETWORKS")
+
+ter.result.good<-c(glm.fit.err.good,lda.fit.err.good,qda.fit.err.good,tree.fit.err.good,bag.tree.fit.err.good,boost.tree.fit.err.good,mse.ns.good)
+ter.table.good<-data.frame(Classifier= models.good,TER_GOOD = ter.result.good) %>% arrange(TER_GOOD)
 
 ```
+## Machine Learning: Test Error Rate Summary
+- I can now compare the TER for both datasets and choose a classifier with the best performance.
+```{r, echo=FALSE}
+
+finalcom<-ter.table.good %>% inner_join(ter.table, by = "Classifier") %>% arrange(TER_GOOD)
+
+ plot_ly(finalcom, x = ~Classifier, y = ~TER_GOOD, type = 'bar', name = 'TER_GOOD') %>%
+  add_trace(y = ~TER_ALL, name = 'TER_ALL') %>%
+  layout(title = "Comparison of TER from 'Good' and 'All' datasets",
+    yaxis = list(title = 'TER'), barmode = 'group')
+```
+
+## Machine Learning: Results
+
+* Now that we know that Bagging Method performs the best, we can see what makes most experienced and best employees leave.
+
+* The following variables contribute the most to best and most experienced employees to leave the company:
+    + Satisfaction Level
+    + Time Spent at Company
+    + Number of Projects
+
+
+```{r, echo=TRUE}
+importance(bag.tree.fit.good)
+```
+
+## Whats Next?
+
+* Manipulate each classifier with different parameters:
+    + Use CV where appropriate to obtain best performance.
+* Explore different classifiers:
+    + EX: Multi-Layer Neural Networks (library: neuralnet)
+* Explore different visualization techniques.
+* Use Python.
+* Use more of the HTML and CSS to make presentation more aesthetically pleasing.
