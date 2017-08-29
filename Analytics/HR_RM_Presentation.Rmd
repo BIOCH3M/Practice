@@ -9,6 +9,8 @@ output: ioslides_presentation
 
 ---
 
+### By: ALEXANDR SURIN
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 
