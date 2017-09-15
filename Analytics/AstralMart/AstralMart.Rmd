@@ -17,509 +17,381 @@ knitr::opts_chunk$set(echo = FALSE)
 #library
 library(flexdashboard)
 library(tidyverse)
+library(dplyr)
+library(highcharter)
+library(plotly)
+library(lubridate)
+#library maps
+library(ggplot2)
+library(ggmap)
+library(maps)
+library(mapdata)
+#libary machine learning
 library(e1071)
 library(MASS)
 library(tree)
 library(randomForest)
 library(gbm)
-library(dplyr)
-library(nnet)
-library(highcharter)
-library(plotly)
+
+
 ```
 
-## Project Overview: Marketing Opportunities Based on Transactional Records 
+## Project Overview: AstralMart Marketing Opportunities Based on Transactional Records 
+* General Overview:
+    1. Describe Data
+    2. Predict
+    3. Decide
 
-* Analysis of 'Human Resources' Data from kaggle
-    + Data Exploration
-    + Machine Learning Approach
-    + Findings and Discussion
-  
+* Explore:
+    + Customers
+    + Product/Item
+    + Price
+    + Quantity
+    + Time
+    + Country
 
+* Predict:
+    + Which customers bring greatest profit to the company (largest overall invoice total)
+    + Causes for Invoice Cancellations
+    
 
-## Data Exploration: Given 
+```{r}
+data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/Moxie/Online_Retail.csv")
+# data5<-data[sample(nrow(data),4000),]
+
+```
+## Data Exploration: Given
 <div class="columns-2">
 
-* Independent Variables:
-    + Satisfaction Level
-    + Last evaluation
-    + Number of projects
-    + Average monthly hours
-    + Time spent at the company
-    + Whether they have had a work accident
-    + Whether they have had a promotion in the last 5 years
-    + Departments (column sales)
-    + Salary
+* Qualitative Variables:
+    + InvoiceNo
+    + StockCode
+    + Description
+    + CustomerID
+    + Country
+    + OrderQuantitySize(small, medium, large)**
+    + TotalProfitSize(small, medium, large)**
+    + PurchaseSeason(Spring, Summer, Fall, Winter)**
+    + TransactionType(Regular,Cancelled)**
+    + Profit_Loss(Profit, Loss)**
     
-* Dependent Variable:
-    + Whether the employee has left
+* Quantitative Variables:
+    + Quantity
+    + Price
+    + InvoiceDate
+    + TotalProfitFromCustomer**
 
-
-
-### Number of Records
-
-```{r,echo=FALSE}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
-numrow <- nrow(data)
-valueBox(numrow, icon = "fa-pencil")
-```
-
-### Number of Variables
-
-```{r,echo=FALSE}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
-numcol<- ncol(data)
-valueBox(numcol, icon = "fa-pencil")
-
-```
-
-</div>
-
-
-## Data Exploration: Data Summary
-
-Quick Look and Summary of HR data
-
+# Data Cleaning/Wrangling
 ```{r, echo=FALSE}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
-head(data)
-summary(data)
+# summary(data)
+# plot(data$Quantity)
+# plot(data$UnitPrice)
+
+########################################CLEAN DATA##################################################
+nrow(data)
+
+#remove trailing and leading spaces for each column
+data2<-data.frame(apply(data,2, function(x){gsub("^ *|(?<= ) | *$", "", x, perl=TRUE)}))
+
+#assign NA values to all empty fields
+data2<-data.frame(apply(data2, 2, function(x){
+  ifelse(is.na(x) | x == "", NA, x)
+}))
+
+data2$Quantity<-as.numeric(as.character(data2$Quantity))
+data2$UnitPrice<-as.numeric(as.character(data2$UnitPrice))
+
+#remove all values with negative UnitPrice value
+data2<-data2 %>% filter(UnitPrice >= 0)
+
+#####################################ADD Variables###########################################
+
+######Create only good transactions
+good.t<- data2 %>% filter(!grepl("^C",as.character(InvoiceNo)) & Quantity >= 0) %>% mutate(TransactionType = "Good") #531285----profit
+#####Create only cancelled transaction list
+canc.t<- data2 %>% filter(grepl("^C",InvoiceNo) & Quantity < 0) %>% mutate(TransactionType = "Cancelled")
+#####Now Create dataset which contains only records of interest.
+data2<-rbind(good.t, canc.t) %>% mutate(TransactionType=as.factor(TransactionType))
+
+
+####Now assign Profit or Loss to transactions.... keep in mind that I assume here that ONLY transactions with ALL NUMERIC code is PROFITABLE all others are fees.
+data2<-data2 %>% mutate(Profit_Loss = "NA")
+#Now see how much money is coming in and out of the company
+data2$Profit_Loss<-as.factor(ifelse(grepl("^[[:digit:]]",data2$StockCode) == TRUE, "Profit", "Loss"))
+
+#Add seasons column
+data2$InvoiceDate<-as.POSIXct(strptime(as.character(data2$InvoiceDate),
+             c("%m/%d/%y %H:%M")))
+
+Wi<- 12 # Winter
+Sp<- 3 # Spring 
+Su<- 6 # Summer 
+Fa<- 9 # Fall 
+season<-as.numeric(month(data2$InvoiceDate))
+data2<-data2 %>% mutate(season=season)
+data2<- data2 %>% mutate(PurchaseSeason = ifelse(season >= Wi | season < Sp, "Winter",
+                                               ifelse(season >= Sp & season < Su, "Spring",
+                                                      ifelse(season >= Su & season < Fa, "Summer", "Fall")))) %>% dplyr::select(-season)
+data2<-data2 %>% mutate(PurchaseSeason=as.factor(PurchaseSeason))
+summary(data2)
+
+
+### Add TotalProfitSize per transaction
+#try<-data2 %>% group_by(InvoiceNo) %>% summarise(sum(UnitPrice*Quantity))
+data2<-data2 %>% group_by(InvoiceNo) %>% mutate(TotalProfitSize = sum(UnitPrice*abs(Quantity)))
+
+### Add OrderQuantitySize per transaction
+data2<-data2 %>% group_by(InvoiceNo) %>% mutate(OrderQuantitySize = sum(abs(Quantity)))
+## Add OrderQantityByCountry
+data2<-data2 %>% group_by(Country) %>% mutate(OrderQantityByCountry = sum(abs(Quantity)))
+
+#ProfitByCountry
+data2<-data2 %>% group_by(Country) %>% mutate(ProfitByCountry = sum(UnitPrice*abs(Quantity)))
+
+#ProfitByCountryBySeason
+data2<-data2 %>% group_by(Country,PurchaseSeason) %>% mutate(ProfitByCountryBySeason = sum(UnitPrice*abs(Quantity)))
+
+#TotalProfitFromCustomer
+data2<-data2 %>% group_by(CustomerID) %>% mutate(TotalProfitFromCustomer = sum(UnitPrice*abs(Quantity)))
+
+# plot(data2$UnitPrice)
+# p<- plot_ly(data2, y= ~UnitPrice, x= ~rownames(data2)) %>% add_markers(alpha=.02,name="alpha")
+
+# 
+# #all records where quantity is negative
+# qup<-data %>% filter(Quantity<0)
+# qup #10624
+# #all records which were cancellations #
+# qdata<-data %>% filter(grepl("^C",InvoiceNo))
+# qdata#9288
+# 
+# data %>% filter(!grepl("^C",InvoiceNo) & Quantity >= 0)#531285----profit
+# e1<-data2 %>% filter(!grepl("^C",InvoiceNo) & Quantity < 0) #1336----confused---but no price given--so junk this
+# summary(e1)
+# e2<-data %>% filter(grepl("^C",InvoiceNo) & Quantity < 0) #9288---lost opportunity
+# summary(e2)
+# data %>% filter(grepl("^C",InvoiceNo) & Quantity >=0) #0
 ```
-
-We see that variables Sales and Salary are categorical, so they will need to be converted
-to factors.
-
-
 ## Data Exploration: Categorical Variables
 <div class="columns-2">
-### Salary
+### Transaction Types
+*Transactions that were either 'Good' and 'Cancelled'
+*Transactions that either provid AstralMart financial 'Profit' or 'Loss'
+```{r, echo=FALSE}
+#Transaction Type
+pie.trans <- plot_ly(data2, labels = ~data2$TransactionType , values = ~rownames(data2), type = 'pie',
+             textposition='inside',
+             textinfo='label+percent')%>%
+  layout(title = 'Transaction Type',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
 
-```{r}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
-pie.sal<-as.character(data$salary)
+#Transaction Type (Profit or Loss)
+pie.profit<- plot_ly(data2, labels = ~data2$Profit_Loss , values = ~rownames(data2), type = 'pie',
+             textposition='inside',
+             textinfo='label+percent')%>%
+  layout(title = 'Profit and Loss',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
 
-hchart(pie.sal, type = "pie")
-
-```
-
-### Sales
-
-```{r}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
-pie.sale<-as.character(data$sales)
-
-hchart(pie.sale, type = "pie")
-```
-
-</div>
-
-## Data Exploration: Insight
-
-```{r}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv") %>% mutate(left = ifelse(left==1, "Left", "Stayed"))
-hcboxplot(x = data$satisfaction_level,var= data$salary, var2 = data$left,
-          outliers = FALSE) %>% 
-  hc_chart(type = "column") %>% # to put box vertical
-  hc_title(text = "Who Left: Satisfaction Level vs Salary") %>% 
-  hc_yAxis(title = list(text = "Satisfaction Level")) %>% 
-  hc_xAxis(title=list(text = "Salary"))
-
-hcboxplot(x = data$satisfaction_level,var= data$sales, var2 = data$left,
-          outliers = FALSE) %>% 
-  hc_chart(type = "column") %>% # to put box vertical
-  hc_title(text = "Who Left: Satisfaction Level vs Sales") %>% 
-  hc_yAxis(title = list(text = "Satisfaction Level")) %>% 
-  hc_xAxis(title=list(text = "Sales"))
-
-hcboxplot(x = data$last_evaluation,var= data$sales, var2 = data$left,
-          outliers = FALSE) %>% 
-  hc_chart(type = "column") %>% # to put box vertical
-  hc_title(text = "Who Left: Last Evaluation vs Sales") %>% 
-  hc_yAxis(title = list(text = "Last Evaluation")) %>% 
-  hc_xAxis(title=list(text = "Sales"))
-
-hcboxplot(x = data$time_spend_company,var= data$sales, var2 = data$left,
-          outliers = FALSE) %>% 
-  hc_chart(type = "column") %>% # to put box vertical
-  hc_title(text = "Who Left: Time with Company vs Sales") %>% 
-  hc_yAxis(title = list(text = "Time with Company")) %>% 
-  hc_xAxis(title=list(text = "Sales"))
-
-hcboxplot(x = data$number_project, var= data$sales, var2 = data$left,
-          outliers = FALSE) %>% 
-  hc_chart(type = "column") %>% # to put box vertical
-  hc_title(text = "Who Left: Number of Projects vs Sales") %>% 
-  hc_yAxis(title = list(text = "Number of Projects")) %>% 
-  hc_xAxis(title=list(text = "Sales"))
-
+#pie.profit
+#pie.trans
 
 ```
 
-##Data Exploration: Observation Summary
+### Who does AstralMart conduct most trasactions with:
 
-* Satisfaction Level vs Salary
-    + People who left the company had a median of 0.41 satisfaction level across all salaries compared to a median of 0.69 satisfaction level for those who stayed. However, it is worth noting that people who had high salaries have very similar satisfaction level compared to much broader ranges for those with low and medium salaries.
-  
-* Satisfaction Level vs Sales
-    + The median satisfaction level for those people who have left the company howers around 0.40 whereas those who stayed at 0.67 across all departments. Most unsatisfied individuals who left were part of the accounting department (negative skewed), whereas the most satisfied were in marketing and product management departments (positive skewed). 
-    
-* Last Evaluation vs Sales
-    + Immediately it s improtant to recognize that people who left  recieved higher evaluation scores than those people who stayed for all departments with the exception of Accounting, HR and Marketing.
-    
-* Time with Company vs Sales
-    + Individuals who left spent around 4 years with the exception of the HR department(3 years). Also, we see that people who stayed with the company have a median of 3 years at the company. 
-    
-* Number of Projects vs Sales
-    + We see that the medium number of projects for those that stayed howevers around 4 for all departments with the majority doing at least 3 projects. Individuals who left had greater differences in project invovement, however, the median still howered at 4 with the exception of HR and Marketing departments.
-    
+```{r, echo=FALSE}
+#All Good and Profit Data
+g.pr.dt<-data2 %>%filter(TransactionType=="Good" & Profit_Loss=="Profit")
+#All Cancelled and Profit Data
+c.pr.dt<-data2 %>%filter(TransactionType=="Cancelled" & Profit_Loss=="Profit")
+
+###Now let's look at total profitable transactions per Country EXCLUDING NEW EANGLAND
+#Good
+g.pr.count<-data.frame(g.pr.dt %>% group_by(Country) %>% count()) %>% mutate(Good.Count= n) %>% dplyr::select(-n)
+#cancelled                       
+c.pr.count<-data.frame(c.pr.dt %>% group_by(Country) %>% count()) %>% mutate(Cancelled.Count= n) %>% dplyr::select(-n)
+
+g.c.count<- g.pr.count %>% left_join(c.pr.count, by= "Country") %>% arrange(desc(Good.Count)) %>% filter(Country != "United Kingdom")
+
+p <- plot_ly(g.c.count, x = ~Country, y = ~Good.Count, type = 'bar', name = 'Good Transactions') %>%
+  add_trace(y = ~Cancelled.Count, name = 'Cancelled Transactions') %>%
+  layout(yaxis = list(title = 'Count of Profitable Transactions'), barmode = 'group')
+p
+#Now lets create a small plot showing New Eangland in piechart
+g.c.count.2<- g.c.count %>% dplyr::select(-Cancelled.Count) %>% summarise(Total.All=sum(Good.Count))
+g.c.count.3<- g.pr.count %>% left_join(c.pr.count, by= "Country") %>% arrange(desc(Good.Count)) %>% filter(Country == "United Kingdom")%>% dplyr::select(-Cancelled.Count) %>% summarise(Total.UK=sum(Good.Count))
+cbind(g.c.count.2,g.c.count.3)
+#TOP 10 Countries with TOP Transactions
+dplyr::top_n(arrange(g.pr.count,desc(Good.Count)), 10,Good.Count )
+
+```
+### Which Country Bring most profit
+```{r, echo=FALSE}
+mp<-g.pr.dt %>% group_by(Country) %>% dplyr::select(Country, ProfitByCountry) %>% unique() %>% arrange(desc(ProfitByCountry)) %>% head(10)
+mp
+
+
+```
+
+### Which Country Bring least profit
+```{r, echo=FALSE}
+lp<-g.pr.dt %>% group_by(Country) %>% dplyr::select(Country, ProfitByCountry) %>% unique() %>% arrange(ProfitByCountry) %>% head(10)
+lp
+
+
+```
+
+### Which Customers Bring most profit
+```{r, echo=FALSE}
+
+mp.pie<-g.pr.dt %>% group_by(CustomerID) %>% dplyr::select(CustomerID, TotalProfitFromCustomer) %>% unique() %>% arrange(desc(TotalProfitFromCustomer)) %>% head(10)
+mp.pie
+pm <- plot_ly(mp.pie, labels = ~CustomerID, values = ~TotalProfitFromCustomer, type = 'pie',
+              textposition='inside',
+             textinfo='label+percent') %>%
+  layout(title = 'Customers who Bring Least Profit',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+pm
+
+```
+### Which Customers Bring least profit
+```{r, echo=FALSE}
+
+lp.pie<-data.frame(g.pr.dt %>% group_by(CustomerID) %>% dplyr::select(CustomerID, TotalProfitFromCustomer) %>% unique() %>% arrange((TotalProfitFromCustomer)) %>% head(10))
+lp.pie
+pl <- plot_ly(lp.pie, labels = ~CustomerID, values = ~TotalProfitFromCustomer, type = 'pie',
+              textposition='inside',
+             textinfo='label+percent') %>%
+  layout(title = 'Customers who Bring Most Profit',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+pl
+
+```
+### Which Products Are most Popular and Least Popular Products
+```{r, echo=FALSE}
+best.product<-data.frame(g.pr.dt %>% group_by(StockCode,Description) %>% count()) %>% arrange(desc(n)) %>% mutate(Stock.Total= n) %>% dplyr::select(-n) %>%  head(10)
+best.product
+```
+
+
+
+### Activity Per Season
+```{r, echo=FALSE}
+
+#Purchase Season Sales
+pie.season <- plot_ly(g.pr.dt, labels = ~g.pr.dt$PurchaseSeason , values = ~rownames(g.pr.dt), type = 'pie',
+             textposition='inside',
+             textinfo='label+percent')%>%
+  layout(title = 'Activity per Season',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+pie.season
+```
+
 ## Machine Learning: Approach
 
-* This is a classification problem because our response variable 'left' is binary:left (1) or stayed (0).
-    + We can not use linear regression because some of our estimates will be outside the [0,1] interval making them hard to interpret as probabilities.
-
 * General Idea:
-    + Split HR dataset into Train (80%) and Test (20%).
-    + Run different classifers on the Train dataset and evaluate classifer performance based on Test Error Rates.
-    + Use the best classifer to predict.
+    + Split dataset into Train (80%) and Test (20%).
+    + Run different models on the Train dataset and evaluate model performance based on Test Error Rates.
+    + Use the best model to find out what impacts Total Profit per Transaction
 
-* Classifiers used:
+* Models used:
     + Logistic Regression
-    + Linear Discirminant Analysis (LDA)
-    + Quadratic Disciminanat Analysis (QDA)
     + Classification Tree
     + Bagging Tree
     + Boosting Tree
-    + Neuaral Networks
-
-* What's the catch:Bias-Variance Trade-off
-    + More complex models are prone to overfitting: Low Bias but High Variance.
-
-![](https://i.stack.imgur.com/r7QFy.png)
 
 ```{r, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+data<-g.pr.dt %>% dplyr::select(-c(OrderQuantitySize,OrderQantityByCountry,ProfitByCountry,
+                                ProfitByCountryBySeason,TotalProfitFromCustomer,Profit_Loss,
+                                TransactionType))
 
-refcols <- c("left")
+refcols <- c("TotalProfitSize")
 #bringing respnonse variable 'left' to the end of the dataframe
 data <- data[, c(setdiff(names(data), refcols), refcols )]
 
-#convert data type
-data$salary<-as.numeric(factor(data$salary))
-data$sales<-as.numeric(factor(data$sales))
-data<-as.data.frame(apply(data, 2, function(x){
-  as.numeric(x)
-}))
+
 #Check for NA values
 data <- na.omit(data)
+data<-data[sample(nrow(data),4000),]
 #create test and training sets
 set.seed(1)
 train <- sample(1:nrow(data),.8*nrow(data))
 training <- data[train,]
 #select all data which is not train for test
 test <- data[-train,]
-#test records 'left' column
-actual.left<-test$left
+#test records 'TotalProfitSize' column
+actual.TotalProfitSize<-test$TotalProfitSize
 ```
-## Machine Learning: Logistic Regression
+## Machine Learning: Regression
 ```{r, echoe=TRUE}
-#Log---using binomial since it is a Yes or No category
-glm.fit<-glm(left~., family=binomial, data=training)
-summary(glm.fit)
-
-glm.prob<-predict(glm.fit, test,type = "response")
-#####Confusion Matrix
-#assign "No"(0) to all test records
-glm.pred=rep(0,3000)
-#now substitue "Yes"(1) for all varialbes which were over .5
-glm.pred[glm.prob>.5]= 1
-```
-- Confusion Matrix
-```{r, echo=TRUE}
-#finally create confusion matrix
-table(glm.pred,actual.left)
-```
-- Test Error Rate
-```{r, echo=TRUE}
-#calculate test error
-glm.fit.err<-mean(glm.pred!=actual.left)
-glm.fit.err
-```
-## Machine Learning: Linear Discirminant Analysis (LDA)
-```{r, echo=TRUE}
-lda.fit<-lda(left~., data=training)
-lda.pred<-predict(lda.fit, test)
-lda.class<-lda.pred$class
+###Run regular regression and look at MSE
+glm.fit<-glm(as.numeric(TotalProfitSize)~., data = training)
+glm.fit
+pred.glm<-predict(glm.fit,test)
+#MSE
+mse.ols<-mean((pred.glm-test$TotalProfitSize)^2)
+mse.ols
 
 ```
-- Confusion Matrix
+
+## Machine Learning: Tree
 ```{r, echo=TRUE}
-table(lda.class, actual.left)
+treem<-tree(TotalProfitSize~., data=training)
+summary(treem)
+plot(treem)
+text(treem,pretty = 0)
+#look at the MSE
+pred.tree<-predict(treem,newdata = test)
+mse.tree<-mean((pred.tree-test$TotalProfitSize)^2)
+#MSE
+mse.tree
 
 ```
-- Test Error Rate
-```{r, echo=TRUE}
-lda.fit.err<-mean(lda.class !=actual.left)
-lda.fit.err
-
-```
-## Machine Learning: Quadratic Disciminanat Analysis (QDA)
-```{r, echo=TRUE}
-qda.fit<-qda(left~., data=training)
-qda.pred<-predict(qda.fit, test)
-qda.class<-qda.pred$class
-
-```
-- Confusion Matrix
-```{r, echo=TRUE}
-table(qda.class, actual.left)
-
-```
-- Test Error Rate
-```{r, echo=TRUE}
-qda.fit.err<-mean(qda.class !=actual.left)
-qda.fit.err
-
-```
-## Machine Learning: Classification Tree
-```{r, echo=TRUE}
-tree.fit<-tree(as.factor(left)~., data=training)
-summary(tree.fit)
-plot(tree.fit)
-text(tree.fit,pretty = 0)
-```
-
-```{r, echo=TRUE}
-tree.pred<-predict(tree.fit,test, type="class")
-table(tree.pred, actual.left)
-
-```
-- Test Error Rate
-```{r, echo=TRUE}
-tree.fit.err<-mean(tree.pred !=actual.left)
-tree.fit.err
-```
-- Run Cross Validation to determine Tree size
-- Here we see that using 10 nodes provides us with best tree. We don't prune the tree.
-```{r, echo=TRUE}
-cv.tree.fit<-cv.tree(tree.fit)
-par(mfrow=c(1,2))
-#you can choose the tree with more pruned see if it helps by this graph
-plot(cv.tree.fit$size,cv.tree.fit$dev, xlim = c(0,12),xlab="Size", ylab = "CV Dev")
-```
-
 
 
 
 ## Machine Learning: Bagging Tree
 ```{r, echo=TRUE}
 set.seed(1)
-bag.tree.fit<-randomForest(as.factor(left)~.,data =training, mtry=9,importance=TRUE)
-bag.tree.fit
+bag.boston<-randomForest(TotalProfitSize~.,data =training, mtry=13,importance=TRUE)
+bag.boston
+#look at the MSE
+pred.bag<-predict(bag.boston,newdata = test)
+mse.bag<-mean((pred.bag-test$TotalProfitSize)^2)
+#MSE
+mse.bag
 
-```
-- Confusion Matrix
-```{r, echo=TRUE}
-bag.tree.pred<-predict(bag.tree.fit,test, type="class")
-table(bag.tree.pred, actual.left)
 
-```
-- Test Error Rate
-```{r, echo=TRUE}
-bag.tree.fit.err<-mean(bag.tree.pred !=actual.left)
-bag.tree.fit.err
 ```
 ## Machine Learning: Boosting Tree
 ```{r, echo=TRUE}
-boost.tree.fit<-gbm(left~., data=training, distribution="bernoulli", n.trees = 500, interaction.depth=2)
-summary(boost.tree.fit)
+
+boost.boston<-gbm(TotalProfitSize~.,data=training, distribution="gaussian", n.trees = 5000, interaction.depth=4)
+summary(boost.boston)
+pred.boost=predict(boost.boston, newdata=test, n.trees=5000)
+#this MSE is almost exactly what random forest is
+mse.boost<-mean((pred.boost-test$TotalProfitSize)^2)
+#MSE
+mse.boost
 
 
 ```
-- Confusion Matrix
-```{r, echo=TRUE}
-boost.tree.pred<-round(predict(boost.tree.fit,test, type="response", n.trees=500))
-table(boost.tree.pred, actual.left)
 
-```
-- Test Error Rate
-```{r, echo=TRUE}
-boost.tree.fit.err<-1-((2260)/(740+2260))
-boost.tree.fit.err
-
-```
-## Machine Learning: Neuaral Networks
-```{r, echo=TRUE}
-ns <- nnet(left ~ .,data=training,size=5,linout=FALSE,decay=5e-4)
-```
-
-```{r, echo=TRUE}
-pr.ns <- predict(ns,test[,1:9])
-pr.nn_2 <- pr.ns*sd(data$left) + mean(data$left)
-mse.ns <- sum((test$left - pr.nn_2)^2)/nrow(pr.nn_2)
-mse.ns
-
-```
 ```{r, echo=FALSE}
-models<-c("LOG REG","LDA","QDA","CLASS. TREE", "BAGGING",
-          "BOOSTING","NEURAL NETWORKS")
+models<-c("REG","TREE","BAGGING TREE","BOOSTING TREE")
 
-ter.result<-c(glm.fit.err,lda.fit.err,qda.fit.err,tree.fit.err,bag.tree.fit.err,boost.tree.fit.err, mse.ns)
-v3<- 1:7
+ter.result<-c(mse.ols,mse.tree,mse.bag,mse.boost)
+v3<- 1:4
 ter.table<-data.frame(Classifier= models,TER_ALL = ter.result) %>% arrange(TER_ALL)
 
 
-```
-
-## Machine Learning: Prediction Using 'Good People' Only
-
-* I now repeat everything from above using the following restrictions on data:
-    + Last Evaluation >= 0.80
-    + Time with Company >= 3
-    + Number of Projects >= 3
-```{r, echo=FALSE, include = FALSE}
-#FINAL PREDICTION USING BAGGED TREES model and run on data which includes only "Good People"
-
-data.2<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv") %>% filter (last_evaluation >= 0.80 & time_spend_company >= 3 & number_project >= 3)
-
-refcols <- c("left")
-#bringing respnonse variable 'left' to the end of the data.2frame
-data.2 <- data.2[, c(setdiff(names(data.2), refcols), refcols )]
-data.2$salary<-as.numeric(factor(data.2$salary))
-data.2$sales<-as.numeric(factor(data.2$sales))  
-data.2<-as.data.frame(apply(data.2, 2, function(x){
-  as.numeric(x)
-}))
-set.seed(1)
-train <- sample(1:nrow(data.2),.8*nrow(data.2))
-training.2 <- data.2[train,]
-#select all data.2 which is not train for test.2
-test.2 <- data.2[-train,]
-#test.2 records 'left' column
-actual.left.2<-test.2$left
-
-##########################LOG
-
-#Log---using binomial since it is a Yes or No category
-glm.fit.good<-glm(left~., family=binomial, data =training.2)
-# summary(glm.fit.good)
-
-glm.prob.good<-predict(glm.fit.good, test.2,type = "response")
-#####Confusion Matrix
-#assign "No"(0) to all test.2 records
-glm.pred.good=rep(0,889)
-#now substitue "Yes"(1) for all varialbes which were over .5
-glm.pred.good[glm.prob.good>.5]= 1
-#finally create confusion matrix
-c1<-table(glm.pred.good,actual.left.2)
-#calculate test.2 error
-glm.fit.err.good<-mean(glm.pred.good!=actual.left.2)
-
-##########################LDA
-
-lda.fit.good<-lda(left~., data=training.2)
-lda.pred.good<-predict(lda.fit.good, test.2)
-lda.class.good<-lda.pred.good$class
-c2<-table(lda.class.good, actual.left.2)
-#Error
-lda.fit.err.good<-mean(lda.class.good !=actual.left.2)
-# lda.fit.err.good
-
-##########################QDA
-
-qda.fit.good<-qda(left~., data=training.2)
-qda.pred.good<-predict(qda.fit.good, test.2)
-qda.class.good<-qda.pred.good$class
-c3<-table(qda.class.good, actual.left.2)
-#Error
-qda.fit.err.good<-mean(qda.class.good !=actual.left.2)
-# qda.fit.err.good
-
-
-########################## Classification TREES
-tree.fit.good<-tree(as.factor(left)~., data=training.2)
-# summary(tree.fit.good)
-# plot(tree.fit.good)
-# text(tree.fit.good,pretty = 0)
-#look at the ERROR
-tree.pred.good<-predict(tree.fit.good,test.2, type="class")
-c4<-table(tree.pred.good, actual.left.2)
-#Error
-tree.fit.err.good<-mean(tree.pred.good !=actual.left.2)
-# tree.fit.err.good
-
-######################Bagging Tree
-
-set.seed(1)
-bag.tree.fit.good<-randomForest(as.factor(left)~.,data=training.2, mtry=9,importance = TRUE)
-#look at the ERROR
-bag.tree.pred.good<-predict(bag.tree.fit.good,test.2, type="class")
-c5<-table(bag.tree.pred.good, actual.left.2)
-#Error
-bag.tree.fit.err.good<-mean(bag.tree.pred.good !=actual.left.2)
-# bag.tree.fit.err.good
-
-######################BOOSTING
-
-#mutate left training.2 to 0 and 1
-#training.2<-mutate(training.2, left.Binary=(ifelse(left=="Yes", 1, 0)))
-#run boost
-boost.tree.fit.good<-gbm(left~., data=training.2, distribution="bernoulli", n.trees = 500, interaction.depth=2)
-# summary(boost.tree.fit.good)
-
-#look at the ERROR
-boost.tree.pred.good<-round(predict(boost.tree.fit.good,test.2, type="response", n.trees=500))
-c6<-table(boost.tree.pred.good, actual.left.2)
-#Error
-boost.tree.fit.err.good<-1-((2260)/(740+2260))
-# boost.tree.fit.err.good
-
-######################################NEURAL NETWORKS
-
-#SINGLE LAYER...
-#single layer
-ns <- nnet(left ~ .,data=training.2,size=5,linout=FALSE,decay=5e-4)
-
-#Predict
-pr.ns.good <- predict(ns,test.2[,1:9])
-pr.nn_2.good <- pr.ns.good*sd(data.2$left) + mean(data.2$left)
-mse.ns.good <- sum((test.2$left - pr.nn_2.good)^2)/nrow(pr.nn_2.good)
-# mse.ns.good
-
-##############################
-models.good<-c("LOG REG","LDA","QDA","CLASS. TREE", "BAGGING",
-          "BOOSTING","NEURAL NETWORKS")
-
-ter.result.good<-c(glm.fit.err.good,lda.fit.err.good,qda.fit.err.good,tree.fit.err.good,bag.tree.fit.err.good,boost.tree.fit.err.good,mse.ns.good)
-ter.table.good<-data.frame(Classifier= models.good,TER_GOOD = ter.result.good) %>% arrange(TER_GOOD)
-
-```
-## Machine Learning: Test Error Rate Summary
-- I can now compare the TER for both datasets and choose a classifier with the best performance.
-```{r, echo=FALSE}
-
-finalcom<-ter.table.good %>% inner_join(ter.table, by = "Classifier") %>% arrange(TER_GOOD)
-
- plot_ly(finalcom, x = ~Classifier, y = ~TER_GOOD, type = 'bar', name = 'TER_GOOD') %>%
-  add_trace(y = ~TER_ALL, name = 'TER_ALL') %>%
-  layout(title = "Comparison of TER from 'Good' and 'All' datasets",
-    yaxis = list(title = 'TER'), barmode = 'group')
-```
-
-## Machine Learning: Results
-
-* Now that we know that Bagging Method performs the best, we can see what makes most experienced and best employees leave.
-
-* The following variables contribute the most to best and most experienced employees to leave the company:
-    + Satisfaction Level
-    + Time Spent at Company
-    + Number of Projects
-    + Average Monthly Hours
-
-
-```{r, echo=TRUE}
-importance(bag.tree.fit.good)
 ```
 
 
