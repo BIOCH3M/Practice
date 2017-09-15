@@ -271,10 +271,11 @@ pl <- plot_ly(lp.pie, labels = ~CustomerID, values = ~TotalProfitFromCustomer, t
 pl
 
 ```
-### Which Products Are most Popular and Least Popular Products
+### Which Products Are most Popular
 ```{r, echo=FALSE}
 best.product<-data.frame(g.pr.dt %>% group_by(StockCode,Description) %>% count()) %>% arrange(desc(n)) %>% mutate(Stock.Total= n) %>% dplyr::select(-n) %>%  head(10)
 best.product
+
 ```
 
 
@@ -308,48 +309,70 @@ pie.season
 ```{r, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 
-data<-g.pr.dt %>% dplyr::select(-c(OrderQuantitySize,OrderQantityByCountry,ProfitByCountry,
-                                ProfitByCountryBySeason,TotalProfitFromCustomer,Profit_Loss,
-                                TransactionType))
+data<-g.pr.dt %>% dplyr::select(-c(OrderQuantitySize,OrderQantityByCountry,ProfitByCountry,ProfitByCountryBySeason,TotalProfitFromCustomer,Profit_Loss,
+                                TransactionType,TotalProfitSize)) %>% filter(Country == "Germany"|Country =="EIRE"|Country =="Netherlands"|Country =="Saudi Arabia"|Country =="Czech Republic"|Country =="Bahrain" & StockCode=="85123A"|StockCode=="22423"| StockCode=="85099B" )
 
-refcols <- c("TotalProfitSize")
+#Reduce Levels for Country
+data<-data %>% mutate(New.Country=unlist(lapply(as.character(Country), function(x){
+  ifelse(x=="United Kingdom","United Kingdom",
+         ifelse(x=="EIRE","EIRE",
+                ifelse(x=="Netherlands","Netherlands",
+                       ifelse(x=="Czech Republic","Czech Republic",
+                              ifelse(x=="Saudi Arabia", "Saudi Arabia",
+                                     ifelse(x=="Bahrain","Bahrain",NA))))))})))
+
+#Reduce Levels for StockNo
+data<-data %>% mutate(New.StockCode=unlist(lapply(as.character(StockCode), function(x){
+  ifelse(x=="85123A","85123A",
+         ifelse(x=="22423","22423",
+                ifelse(x=="85099B","85099B",NA)))})))
+data$New.Country<-as.factor(data$New.Country)
+
+refcols <- c("Quantity")
 #bringing respnonse variable 'left' to the end of the dataframe
 data <- data[, c(setdiff(names(data), refcols), refcols )]
 
-
+nrow(data)
 #Check for NA values
 data <- na.omit(data)
-data<-data[sample(nrow(data),4000),]
+# data<-data[sample(nrow(data),4000),] 
 #create test and training sets
 set.seed(1)
 train <- sample(1:nrow(data),.8*nrow(data))
 training <- data[train,]
 #select all data which is not train for test
 test <- data[-train,]
-#test records 'TotalProfitSize' column
-actual.TotalProfitSize<-test$TotalProfitSize
+#test records 'Quantity' column
+actual.Quantity<-test$Quantity
+
+levels(data$Country)
+levels(as.factor(data$New.Country))
+
+
+
 ```
 ## Machine Learning: Regression
 ```{r, echoe=TRUE}
 ###Run regular regression and look at MSE
-glm.fit<-glm(as.numeric(TotalProfitSize)~., data = training)
+glm.fit<-glm(Quantity~as.factor(PurchaseSeason)+as.numeric(UnitPrice)+as.factor(New.Country), data = training)
 glm.fit
 pred.glm<-predict(glm.fit,test)
 #MSE
-mse.ols<-mean((pred.glm-test$TotalProfitSize)^2)
+mse.ols<-mean((pred.glm-test$Quantity)^2)
 mse.ols
 
 ```
 
 ## Machine Learning: Tree
 ```{r, echo=TRUE}
-treem<-tree(TotalProfitSize~., data=training)
+
+treem<-tree(Quantity~UnitPrice+New.Country+ as.factor(New.StockCode)+as.factor(PurchaseSeason), data=training)
 summary(treem)
 plot(treem)
 text(treem,pretty = 0)
 #look at the MSE
 pred.tree<-predict(treem,newdata = test)
-mse.tree<-mean((pred.tree-test$TotalProfitSize)^2)
+mse.tree<-mean((pred.tree-test$Quantity)^2)
 #MSE
 mse.tree
 
@@ -360,11 +383,11 @@ mse.tree
 ## Machine Learning: Bagging Tree
 ```{r, echo=TRUE}
 set.seed(1)
-bag.boston<-randomForest(TotalProfitSize~.,data =training, mtry=13,importance=TRUE)
+bag.boston<-randomForest(Quantity~PurchaseSeason + UnitPrice + New.Country, data =training, mtry=2,importance=TRUE)
 bag.boston
 #look at the MSE
 pred.bag<-predict(bag.boston,newdata = test)
-mse.bag<-mean((pred.bag-test$TotalProfitSize)^2)
+mse.bag<-mean((pred.bag-test$Quantity)^2)
 #MSE
 mse.bag
 
@@ -373,11 +396,11 @@ mse.bag
 ## Machine Learning: Boosting Tree
 ```{r, echo=TRUE}
 
-boost.boston<-gbm(TotalProfitSize~.,data=training, distribution="gaussian", n.trees = 5000, interaction.depth=4)
+boost.boston<-gbm(Quantity~UnitPrice+New.Country+as.factor(New.StockCode)+PurchaseSeason,data=training, distribution="gaussian", n.trees = 10000, interaction.depth=2)
 summary(boost.boston)
-pred.boost=predict(boost.boston, newdata=test, n.trees=5000)
+pred.boost=predict(boost.boston, newdata=test, n.trees=10000)
 #this MSE is almost exactly what random forest is
-mse.boost<-mean((pred.boost-test$TotalProfitSize)^2)
+mse.boost<-mean((pred.boost-test$Quantity)^2)
 #MSE
 mse.boost
 
@@ -385,25 +408,46 @@ mse.boost
 ```
 
 ```{r, echo=FALSE}
-models<-c("REG","TREE","BAGGING TREE","BOOSTING TREE")
 
-ter.result<-c(mse.ols,mse.tree,mse.bag,mse.boost)
+#SINGLE LAYER...
+
+library(nnet)
+
+#single layer
+ns <- nnet(Quantity ~ UnitPrice+New.Country+as.factor(New.StockCode)+PurchaseSeason, data=training,size=1,linout=TRUE,decay=5e-4)
+
+#Illustrate NN
+# plot(ns)
+
+#Predict
+pr.ns <- predict(ns,test)
+pr.nn_2 <- pr.ns*sd(data$Quantity) + mean(data$Quantity)
+mse.ns <- sum((test$Quantity - pr.nn_2)^2)/nrow(pr.nn_2)
+mse.ns
+```
+
+```{r, echo=FALSE}
+
+models<-c("REG","TREE","BAGGING TREE","BOOSTING TREE", "SINGLE LAYER")
+
+ter.result<-c(mse.ols,mse.tree,mse.bag,mse.boost,mse.ns)
 v3<- 1:4
 ter.table<-data.frame(Classifier= models,TER_ALL = ter.result) %>% arrange(TER_ALL)
 
-
 ```
+## Conclusion:
 
+*Quantity of individual StockCode ordered by customers from top 3 profitable countries("Germany","Netherlands", "EIRE") and least profitable countries ("Saudi Arabia","Czech Republic","Bahrain") based on price of the top three items:"85123A","22423","85099B" was affected the most by price of each item. Per intuition we see that ordered quantity increases as the price per item decreases. 
 
 ## Whats Next?
 
-* Manipulate each classifier with different parameters:
+* Manipulate each model with different parameters:
     + Use CV where appropriate to obtain best performance.
-* Explore different classifiers:
+* Generate more variables of interest and uncover new opportunities.
+* Explore different models:
     + EX: Multi-Layer Neural Networks (library: neuralnet)
 * Explore different visualization techniques.
-* Use Python.
-* Use more of the HTML and CSS to make presentation more aesthetically pleasing.
+
 
 ## References
 
