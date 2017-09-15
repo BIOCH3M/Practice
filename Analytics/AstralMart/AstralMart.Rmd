@@ -51,8 +51,7 @@ library(gbm)
     + Country
 
 * Predict:
-    + Which customers bring greatest profit to the company (largest overall invoice total)
-    + Causes for Invoice Cancellations
+    + What factors affect quantity of products purchased.
     
 
 ```{r}
@@ -69,8 +68,6 @@ data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/Moxie/Online_Retail.csv")
     + Description
     + CustomerID
     + Country
-    + OrderQuantitySize(small, medium, large)**
-    + TotalProfitSize(small, medium, large)**
     + PurchaseSeason(Spring, Summer, Fall, Winter)**
     + TransactionType(Regular,Cancelled)**
     + Profit_Loss(Profit, Loss)**
@@ -79,7 +76,6 @@ data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/Moxie/Online_Retail.csv")
     + Quantity
     + Price
     + InvoiceDate
-    + TotalProfitFromCustomer**
 
 # Data Cleaning/Wrangling
 ```{r, echo=FALSE}
@@ -194,8 +190,8 @@ pie.profit<- plot_ly(data2, labels = ~data2$Profit_Loss , values = ~rownames(dat
          xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
 
-#pie.profit
-#pie.trans
+pie.profit
+pie.trans
 
 ```
 
@@ -271,6 +267,7 @@ pl <- plot_ly(lp.pie, labels = ~CustomerID, values = ~TotalProfitFromCustomer, t
 pl
 
 ```
+
 ### Which Products Are most Popular
 ```{r, echo=FALSE}
 best.product<-data.frame(g.pr.dt %>% group_by(StockCode,Description) %>% count()) %>% arrange(desc(n)) %>% mutate(Stock.Total= n) %>% dplyr::select(-n) %>%  head(10)
@@ -300,8 +297,8 @@ pie.season
     + Run different models on the Train dataset and evaluate model performance based on Test Error Rates.
     + Use the best model to find out what impacts Total Profit per Transaction
 
-* Models used:
-    + Logistic Regression
+* Models Used:
+
     + Classification Tree
     + Bagging Tree
     + Boosting Tree
@@ -352,7 +349,7 @@ levels(as.factor(data$New.Country))
 
 ```
 ## Machine Learning: Regression
-```{r, echoe=TRUE}
+```{r, echoe=FALSE}
 ###Run regular regression and look at MSE
 glm.fit<-glm(Quantity~as.factor(PurchaseSeason)+as.numeric(UnitPrice)+as.factor(New.Country), data = training)
 glm.fit
@@ -364,7 +361,7 @@ mse.ols
 ```
 
 ## Machine Learning: Tree
-```{r, echo=TRUE}
+```{r, echoe=FALSE}
 
 treem<-tree(Quantity~UnitPrice+New.Country+ as.factor(New.StockCode)+as.factor(PurchaseSeason), data=training)
 summary(treem)
@@ -381,7 +378,7 @@ mse.tree
 
 
 ## Machine Learning: Bagging Tree
-```{r, echo=TRUE}
+```{r, echoe=FALSE}
 set.seed(1)
 bag.boston<-randomForest(Quantity~PurchaseSeason + UnitPrice + New.Country, data =training, mtry=2,importance=TRUE)
 bag.boston
@@ -394,7 +391,7 @@ mse.bag
 
 ```
 ## Machine Learning: Boosting Tree
-```{r, echo=TRUE}
+```{r, echoe=FALSE}
 
 boost.boston<-gbm(Quantity~UnitPrice+New.Country+as.factor(New.StockCode)+PurchaseSeason,data=training, distribution="gaussian", n.trees = 10000, interaction.depth=2)
 summary(boost.boston)
@@ -407,37 +404,37 @@ mse.boost
 
 ```
 
-```{r, echo=FALSE}
+```{r, echoe=FALSE}
 
-#SINGLE LAYER...
-
-library(nnet)
-
-#single layer
-ns <- nnet(Quantity ~ UnitPrice+New.Country+as.factor(New.StockCode)+PurchaseSeason, data=training,size=1,linout=TRUE,decay=5e-4)
-
-#Illustrate NN
-# plot(ns)
-
-#Predict
-pr.ns <- predict(ns,test)
-pr.nn_2 <- pr.ns*sd(data$Quantity) + mean(data$Quantity)
-mse.ns <- sum((test$Quantity - pr.nn_2)^2)/nrow(pr.nn_2)
-mse.ns
+# #SINGLE LAYER...
+# 
+# library(nnet)
+# 
+# #single layer
+# ns <- nnet(Quantity ~ UnitPrice+New.Country+as.factor(New.StockCode)+PurchaseSeason, data=training,size=1,linout=TRUE,decay=5e-4)
+# 
+# #Illustrate NN
+# # plot(ns)
+# 
+# #Predict
+# pr.ns <- predict(ns,test)
+# pr.nn_2 <- pr.ns*sd(data$Quantity) + mean(data$Quantity)
+# mse.ns <- sum((test$Quantity - pr.nn_2)^2)/nrow(pr.nn_2)
+# mse.ns
 ```
 
 ```{r, echo=FALSE}
-
-models<-c("REG","TREE","BAGGING TREE","BOOSTING TREE", "SINGLE LAYER")
-
-ter.result<-c(mse.ols,mse.tree,mse.bag,mse.boost,mse.ns)
-v3<- 1:4
-ter.table<-data.frame(Classifier= models,TER_ALL = ter.result) %>% arrange(TER_ALL)
+# 
+# models<-c("REG","TREE","BAGGING TREE","BOOSTING TREE", "SINGLE LAYER")
+# 
+# ter.result<-c(mse.ols,mse.tree,mse.bag,mse.boost,mse.ns)
+# v3<- 1:4
+# ter.table<-data.frame(Classifier= models,TER_ALL = ter.result) %>% arrange(TER_ALL)
 
 ```
 ## Conclusion:
 
-*Quantity of individual StockCode ordered by customers from top 3 profitable countries("Germany","Netherlands", "EIRE") and least profitable countries ("Saudi Arabia","Czech Republic","Bahrain") based on price of the top three items:"85123A","22423","85099B" was affected the most by price of each item. Per intuition we see that ordered quantity increases as the price per item decreases. 
+* Quantity of individual StockCode ordered by customers from top 3 profitable countries("Germany","Netherlands", "EIRE") and least profitable countries ("Saudi Arabia","Czech Republic","Bahrain") based on price of the top three items:"85123A","22423","85099B" was affected the most by price of each item. Per intuition we see that ordered quantity increases as the price per item decreases. 
 
 ## Whats Next?
 
