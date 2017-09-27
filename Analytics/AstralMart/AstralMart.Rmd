@@ -190,8 +190,8 @@ pie.profit<- plot_ly(data2, labels = ~data2$Profit_Loss , values = ~rownames(dat
          xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
 
-pie.profit
-pie.trans
+# pie.profit
+# pie.trans
 
 ```
 
@@ -247,7 +247,7 @@ mp.pie
 pm <- plot_ly(mp.pie, labels = ~CustomerID, values = ~TotalProfitFromCustomer, type = 'pie',
               textposition='inside',
              textinfo='label+percent') %>%
-  layout(title = 'Customers who Bring Least Profit',
+  layout(title = 'Customers who Bring Most Profit',
          xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
 pm
@@ -261,7 +261,7 @@ lp.pie
 pl <- plot_ly(lp.pie, labels = ~CustomerID, values = ~TotalProfitFromCustomer, type = 'pie',
               textposition='inside',
              textinfo='label+percent') %>%
-  layout(title = 'Customers who Bring Most Profit',
+  layout(title = 'Customers who Bring Least Profit',
          xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
 pl
