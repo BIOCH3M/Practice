@@ -1,3 +1,9 @@
+<style>
+body {
+    overflow: scroll;
+}
+</style>
+
 ---
 title: 'Predictive and Visual Analytics: Cell-Phone Service Provider'
 author: "Alexandr Surin"
@@ -8,27 +14,323 @@ output: ioslides_presentation
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 
+#library
+library(flexdashboard)
+library(tidyverse)
+library(plotly)
+#libary machine learning
+library(car)
+library(e1071)
+library(MASS)
+library(tree)
+library(randomForest)
+library(gbm)
+
 
 ```
 
-## R Markdown
+##  Project Overview: 
+
+* General Overview:
+    1. Explore: Data Visualization (Tableau)
+    2. Predict (R)
+    3. Decide 
+
+* Explore:
+    + All customers 
+    + Customers that end contracts (In-Depth)
+
+* Predict:
+    + Which new customers are likely to leave in the next quarter
 
 
-## Slide with Bullets
+```{r, echo = FALSE}
 
-- Bullet 1
-- Bullet 2
-- Bullet 3
-
-## Slide with R Output
-
-```{r cars, echo = TRUE}
+###############################################################
+#                  Data Extract                               #
+###############################################################
+# Last Quarter Custmer Activity Data
+lqc.data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/Interworks/DataSci_Exercise/account_activity.csv")
+# LQC's Account Details
+lci.data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/Interworks/DataSci_Exercise/customer_info.csv")
+#New Customer Data 
+newc.data.raw<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/Interworks/DataSci_Exercise/new_customers.csv")
 
 ```
 
-## Slide with Plot
+##Clean Data
 
-```{r pressure}
+* Create a new data frame which conatins all variables from 'Last Qarter' customers.
+* Alter both 'Last Quarter' and 'New Quarter' data frames to contain only matching variables.
+    
+
+```{r, echo = FALSE}
+
+###############################################################
+#                  Data Transfromation                        #
+###############################################################
+###LQC
+#Check for NA values and duplicate
+# nrow(lqc.data)
+# nrow(na.omit(lqc.data))
+lqc.data<-distinct(lqc.data)
+# summary(lqc.data)
+
+###LQC INFO
+#Check for NA values and duplicate
+# nrow(lci.data)
+# nrow(na.omit(lci.data))
+#remove dups
+lci.data<-distinct(lci.data)
+# summary(lci.data)
+
+###NEW Customers
+#Check for NA values and duplicate
+# nrow(newc.data)
+# nrow(na.omit(newc.data %>% dplyr::select(-Churn)))
+newc.data.raw<-distinct(newc.data.raw)
+# summary(newc.data.raw)
+
+#Create new data frame where all variables for LQC are in the same place
+data.raw<-lqc.data %>% full_join(lci.data, by ="Customer.ID") %>% distinct()
+
+#Prepare data sets for machine learning.. both the 'new quarter' customer dataset and 'old quarter' custumer datasets should have the same variables to build model
+#Also I remove variable Phone as I know that phone numbers (including area code because it is the same in multiple states) are randomly assigned to each person... it will just create too many levels and negatively affect the model
+data<-data.raw %>% dplyr::select(-c(Customer.ID, Phone, Area_Code))
+newc.data<-newc.data.raw %>% dplyr::select(-c(Account_Length, Phone,Area_Code))
+
+#####################################################################################################################
+# Write .csv to work out of Tableau
+# df.tableau_1<-data %>% mutate(Customer="Existing")
+# df.tableau_2<-data %>% mutate(Customer="New")
+# df.tableau<-rbind(df.tableau_1, df.tableau_2)
+# write.csv(df.tableau, "/Users/asurin/Documents/GITHUB_PUBLIC/Interworks/Tableau_Data.csv")
+# rm("df.tableau_1","df.tableau_2","df.tableau")
+#####################################################################################################################
+#Now make sure that we have the same variables in both new quarter and old quarter datasets
+iden<-identical(sort(names(data)),sort(names(newc.data)))
+
+#Now that I know that varialbes are the same in two dataframes I can start Machine Learning.
+##Make sure all categorical variables are converted to factors... including Churn!
+# data$Churn<-as.factor(data$Churn)
+data$State<-as.factor(data$State)
+data$Intl_Plan<-as.factor(data$Intl_Plan)
+data$VMail_Plan<-as.factor(data$VMail_Plan)
+# data$Total_Charge<-data$VMail_Plan
+# data$total_Mins<-data$VMail_Plan
 
 ```
+
+## Machine Learning
+* This is a classification problem because our response variable 'Churn' is binary: left (1) or stayed (0).
+    + We can not use linear regression because some of our estimates will be outside the [0,1] interval making them hard to interpret as probabilities.
+
+* General Idea:
+    + Use 'Last Quarter' customer data to build and test model performance. 
+    + Apply best model to the 'New Quarter' customer data to predict which new customers are likely to leave in the next quarter.
+    
+* ML Overview
+    + Split 'Last Quarter' customer data into Train (80%) and Test (20%).
+    + Run different classifers on the Train dataset and evaluate classifer performance based on Test Error Rates.
+
+* Classifiers used:
+    + Logistic Regression
+    + Classification Tree
+    + Random Forest
+    
+* What's the catch:Bias-Variance Trade-off
+    + More complex models are prone to overfitting: Low Bias but High Variance.
+
+##Multicollinearity
+
+* By looking at the variables from the dataset I expect multicollinearity becasue some explanatory variables can be derived from combinations of other explanatory variables (ex. totol_Mins, Total_Charge)
+* This might produce bizarre B estimates...
+* To reslolve this issue... I will use intuition to chose only one of explanatory variables that are highly correlated in the regression model.
+
+```{r, echoe=FALSE}
+#Temporarily assign numerical values to all factors to make entire dataset numeric... this is only to look for multicollinearity
+data.mcheck<-data %>% mutate_if(is.factor, as.numeric) 
+#Select all numeric vairables and get correlation coefficients 
+cor.matrix<-data.frame(round(cor(data.mcheck),2))
+cor.matrix
+# cor.test(VMail_Message, VMail_Plan) 
+```
+* We see strong correlations between:
+    +  VMail_Message and VMail_Plan
+    +  Day_Mins and Day_Charge and Total_Mins and Total_Charge
+    +  Eve_Mins and Eve_Charge and Total_Mins and Total_Charge 
+    +  Night_Mins and Night_Charge and Total_Mins and Total_Charge
+    +  Int_Mins and Intl_Charge
+* From above variables I will only keep the following variables to build my model:
+    +  VMail_Plan
+    +  Total_Charge
+    +  Intl_Charge
+
+```{r, echoe=FALSE}
+#SUBSETTING THE DATA to get rid of multicollinearity
+data<-data %>% dplyr::select(Intl_Charge,Total_Charge,CustServ_Calls,State, Intl_Plan,VMail_Plan,Churn)
+
+newc.data<-newc.data%>% dplyr::select(Intl_Charge,Total_Charge,CustServ_Calls,State,Intl_Plan,VMail_Plan,Churn)
+
+```
+
+
+
+
+
+
+
+```{r, echo = FALSE}
+
+
+###############################################################
+#                  Machine Learning                           #
+###############################################################
+#create test and training sets with 
+set.seed(1)
+data$Churn<-as.factor(data$Churn)
+train <- sample(1:nrow(data),.8*nrow(data))
+training <- data[train,]
+#select all data which is not train for test
+test <- data[-train,]
+#test records 'Churn' column
+actual.left<-test$Churn
+
+```
+
+## Machine Learning: Variable Normality
+```{r, echoe=FALSE}
+
+layout(matrix(1:3, 3))
+boxplot(data$Intl_Charge, xlab="Charge", main="International Charge", horizontal = TRUE)
+boxplot(data$Total_Charge, xlab="Charge", main="Total Charge", horizontal = TRUE)
+boxplot(data$CustServ_Calls, xlab="Number of Calls", main="Customer Service Calls", horizontal = TRUE)
+```
+
+
+## Machine Learning: Logistic Regression
+
+```{r, echoe=FALSE}
+#Log---using binomial since it is a Yes or No category
+glm.fit<-glm(Churn~., family=binomial, data=training)
+summary(glm.fit)
+glm.prob<-predict(glm.fit, test,type = "response")
+#####Confusion Matrix
+#assign "No"(0) to all test records
+glm.pred=rep(0,667)
+#now substitue "Yes"(1) for all varialbes which were over .5
+glm.pred[glm.prob>.5]= 1
+```
+
+- Confusion Matrix
+```{r, echo=FALSE}
+#finally create confusion matrix
+table(glm.pred,actual.left)
+```
+
+- Test Error Rate
+```{r, echo=FALSE}
+#calculate test error
+glm.fit.err<-mean(glm.pred!=actual.left)
+glm.fit.err
+```
+
+## Machine Learning: Classification Tree
+```{r, echo=FALSE}
+#remove States as it has too many levels
+tree.fit<-tree(as.factor(Churn) ~. - State, data=training)
+summary(tree.fit)
+plot(tree.fit)
+text(tree.fit,pretty = 0)
+```
+
+```{r, echo=FALSE}
+tree.pred<-predict(tree.fit,test, type="class")
+table(tree.pred, actual.left)
+
+```
+
+- Test Error Rate
+```{r, echo=FALSE}
+tree.fit.err<-mean(tree.pred !=actual.left)
+tree.fit.err
+```
+
+- Run Cross Validation to determine Tree size
+- Here we see that using 7 nodes provides us with best tree. We don't prune the tree.
+```{r, echo=FALSE}
+cv.tree.fit<-cv.tree(tree.fit)
+par(mfrow=c(1,2))
+#you can choose the tree with more pruned see if it helps by this graph
+plot(cv.tree.fit$size,cv.tree.fit$dev, xlim = c(0,10),xlab="Size", ylab = "CV Dev")
+```
+
+## Machine Learning: Random Forest
+```{r, echo=FALSE}
+
+set.seed(1)
+bag.tree.fit<-randomForest(as.factor(Churn)~ .,data =training, mtry=4,importance=TRUE)
+bag.tree.fit
+
+```
+- Confusion Matrix
+```{r, echo=FALSE}
+bag.tree.pred<-predict(bag.tree.fit,test, type="class")
+table(bag.tree.pred, actual.left)
+
+```
+
+- Test Error Rate
+```{r, echo=FALSE}
+bag.tree.fit.err<-mean(bag.tree.pred !=actual.left)
+bag.tree.fit.err
+```
+```{r, echo=FALSE}
+models<-c("LOG REG","CLASS. TREE", "RANDOM FOREST")
+
+ter.result<-round(c(glm.fit.err,tree.fit.err,bag.tree.fit.err)*100,3)
+ter.table<-data.frame(Classifier= models,Test_Err = ter.result) %>% arrange(Test_Err)
+
+ plot_ly(ter.table, x = ~Classifier, y = ~Test_Err, type = 'bar', name = 'Test Err') %>%
+  layout(title = "Comparison of Test Error Rate from Different Classifiers",
+    yaxis = list(title = 'Test Erro Rate (%)'), barmode = 'group')
+```
+
+
+## Predictng
+
+*Now that I know that Classification Tree classifeir has the resulted in the smallest TER I will use all records from 'Last Quarter' customer data to predict who will leave in 'New Qarter'.
+
+```{r}
+#remove States as it has too many levels
+tree.fit.final<-tree(as.factor(Churn) ~. - State, data=data)
+
+summary(tree.fit.final)
+plot(tree.fit.final)
+text(tree.fit.final,pretty = 0)
+#Now predict Churn for the 'New Quarter' customers based on our best model
+newc.data$Churn<-predict(tree.fit, newc.data, type="class")
+head(newc.data)
+
+```
+
+
+## Machine Learning: Results
+
+* The following variables contribute the most to customer experience employees to leave the company:
+    + Total Charge 
+    + Voice Mail Plan
+    + Number of Calls to Customer Service
+    + International Plan
+    + International Charge
+    
+    
+## Whats Next: Approach
+
+* Manipulate each model with different parameters:
+    + Use CV where appropriate to obtain best performance.
+* Select/Generate different variables of interest and uncover new opportunities.
+* Explore different models:
+    + EX: Multi-Layer Neural Networks (library: neuralnet)
+* Explore different visualization techniques.
 
