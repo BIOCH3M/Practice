@@ -44,6 +44,9 @@ library(gbm)
     + Which new customers are likely to leave in the next quarter
 
 
+
+
+
 ```{r, echo = FALSE}
 
 ###############################################################
@@ -62,6 +65,22 @@ newc.data.raw<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/Interworks/DataSc
 
 * Create a new data frame which conatins all variables from 'Last Qarter' customers.
 * Alter both 'Last Quarter' and 'New Quarter' data frames to contain only matching variables.
+
+## Visualization Results: Summary (Tableau)
+
+* Who Are Our Customers?
+    + WV - 212 Customers
+    + CA - 68 Customers
+
+* Which States Bring Most Profit?
+    + WV- 12,159 (Total Charge)
+    + CA- 4,061 (Total Charge)
+    
+* Which Plans Are Popular?
+    1. Neither International nor the Voicemail Plan (4,360)
+    2. Voicemail Plan but Not International Plan (1,660)
+    3. International Plan but Not Voicemail Plan (462)
+    4. Both Plans (184)
     
 
 ```{r, echo = FALSE}
@@ -324,7 +343,7 @@ head(newc.data)
     + International Plan
     + International Charge
     
-    
+
 ## Whats Next: Approach
 
 * Manipulate each model with different parameters:
