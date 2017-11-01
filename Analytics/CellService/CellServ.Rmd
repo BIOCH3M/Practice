@@ -336,7 +336,7 @@ head(newc.data)
 
 ## Machine Learning: Results
 
-* The following variables contribute the most to customer experience employees to leave the company:
+* The following variables have most impact on customers who leave the company:
     + Total Charge 
     + Voice Mail Plan
     + Number of Calls to Customer Service
