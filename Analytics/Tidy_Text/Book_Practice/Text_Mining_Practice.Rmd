@@ -19,12 +19,17 @@ knitr::opts_chunk$set(echo = FALSE)
 library(gutenbergr)#Book
 library(janeaustenr)#Book
 library(tidyverse)
+library(ggraph)
 library(ggplot2)
 library(tidytext)
 library(stringr)
 library(scales)
 library(wordcloud)
 library(reshape2)
+library(igraph)#networks
+library(widyr)#counts and correlations
+library(tm)#Document Term Matrix
+library(topicmodels) #Topic Modeling
 
 ```
 
@@ -462,6 +467,613 @@ freq_by_rank %>%
 ```
 
 
-## 
+
+## Find Important Words in Document
+
+* We use the tf-idf to determine important words by decreasing weight of common words and increase weight of words which aren't used much.
+
+* bind_tf_idf function
+    + All common words will have tf-idf at zero.
+    + The idf term (natural log of 1) is zero because they appear in all books.
+    + the tf-idf(inverse document frequency) is almost zero, giving the tokens low weight
+```{r, echo=TRUE}
+
+book_words <- book_words %>%
+  bind_tf_idf(word, book, n)
+book_words
+```
+* Now we can look at terms that are in fact important based on the high tf-idf.
+* Some values are the smae for different terms because there are 6 douments in this corpus and we are seeing the numerical values for ln(6/1), ln(6/2), etc.
+
+``` {r, echo = TRUE}
+book_words %>%
+  select(-total) %>%
+  arrange(desc(tf_idf))
+```
+
+* Visualization for high-tf words
+
+``` {r, echo = TRUE}
+
+plot_austen <- book_words %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(word = factor(word, levels = rev(unique(word))))
+
+plot_austen %>% 
+  top_n(20) %>%
+  ggplot(aes(word, tf_idf, fill = book)) +
+  geom_col() +
+  labs(x = NULL, y = "tf-idf") +
+  coord_flip()
+
+```
+* And now by Novel:
+
+```{r, echo=TRUE}
+
+plot_austen %>% 
+  group_by(book) %>% 
+  top_n(15) %>% 
+  ungroup %>%
+  ggplot(aes(word, tf_idf, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~book, ncol = 2, scales = "free") +
+  coord_flip()
+
+```
+
+# Relationships Between Words: n-grams and correlations
+
+## Intro
+
+* Which words seem to co-occur with in the same docuemnts
+* Argument *token='ngrams'* tokenizes by pairs adjacent words where n is the number of words captured i.e. n=2 is called bigrams.
+* Package "ggprah"(network plots) and "widyr"(calculates pairwise correlations and distances)
+
+```{r, echo=FALSE}
+library(ggraph)
+library(widyr)
+```
+
+* See how often word X is followed by word Y and build a model of relationships between them.
+```{r, echo=TRUE}
+
+austen_bigrams <- austen_books() %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+austen_bigrams
+
+```
+
+## Counting and Filtering n-grams
+```{r, echo=TRUE}
+austen_bigrams %>%
+  count(bigram, sort = TRUE)
+
+```
+* This includes a lot of stop words... so let's remove all stop words!
+
+```{r, echo=TRUE}
+
+bigrams_separated <- austen_bigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+# new bigram counts:
+bigram_counts <- bigrams_filtered %>% 
+  count(word1, word2, sort = TRUE)
+
+bigram_counts
+```
+
+## Analyzing Bigrams
+
+* Looking for most common 'streets'
+
+```{r, echo=TRUE}
+bigrams_filtered %>%
+  filter(word2 == "street") %>%
+  count(book, word1, sort = TRUE)
+
+```
+
+* Since each bigram can be treated as individual words we can do tf-idf analysis
+```{r, echo=TRUE}
+
+bigrams_united <- bigrams_filtered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigrams_united
+bigram_tf_idf <- bigrams_united %>%
+  count(book, bigram) %>%
+  bind_tf_idf(bigram, book, n) %>%
+  arrange(desc(tf_idf))
+
+bigram_tf_idf
+
+```
+
+## Bigrams: Sentiment Analysis
+
+* Doing sentiment analysis as bigrams opens new insight beacause it accounts for 'not happy' type phrases
+* Start by summuary of words that precede by 'not'
+
+```{r, echo=TRUE}
+
+bigrams_separated %>%
+  filter(word1 == "not") %>%
+  count(word1, word2, sort = TRUE)
+```
+
+* Now find out which words are preceded by not:
+
+```{r, echo=TRUE}
+#sentiment dictionary
+AFINN <- get_sentiments("afinn")
+AFINN
+
+
+#Look for words precedded by 'not'
+not_words <- bigrams_separated %>%
+  filter(word1 == "not") %>%
+  inner_join(AFINN, by = c(word2 = "word")) %>%
+  count(word2, score, sort = TRUE) %>%
+  ungroup()
+not_words
+
+```
+* Look for which words contribute to the wrong direction due unaccounting for missing
+```{r, echo=TRUE}
+not_words %>%
+  mutate(contribution = n * score) %>%
+  arrange(desc(abs(contribution))) %>%
+  head(20) %>%
+  mutate(word2 = reorder(word2, contribution)) %>%
+  ggplot(aes(word2, n * score, fill = n * score > 0)) +
+  geom_col(show.legend = FALSE) +
+  xlab("Words preceded by \"not\"") +
+  ylab("Sentiment score * number of occurrences") +
+  coord_flip()
+```
+* Here the impact of the phrases of 'not like' are huge misidentifications making the text more positive
+
+* Now we can pick a string of words that negate subsequent term and see how all of them are contributign
+
+```{r, echo=TRUE}
+
+negation_words <- c("not", "no", "never", "without")
+
+negated_words <- bigrams_separated %>%
+  filter(word1 %in% negation_words) %>%
+  inner_join(AFINN, by = c(word2 = "word")) %>%
+  count(word1, word2, score, sort = TRUE) %>%
+  ungroup()
+negated_words
+
+```
+
+## Bigrams: Visualization of Network
+
+* Good way to visualize relationships amount words simultaneously by showing an entire network.
+* Structure:
+    + From: node an edge is coming from
+    + To: node an edge is going to
+    + Weight: Numeric value associated with each edge
+    
+* Function: graph_from_data_frame()
+    + Takes data frame of edges with columns 'From' and 'To' and edge attributes which is n.
+```{r, echo=TRUE}
+# filter for only relatively common combinations
+bigram_graph <- bigram_counts %>%
+  filter(n > 20) %>%
+  graph_from_data_frame()
+
+bigram_graph
+```
+* Now graph in ggraph.
+
+```{r, echo=TRUE}
+set.seed(1)
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+
+```
+
+
+## Bigrams: Counting and Correlating Word pairs
+
+* Use pairwise comparisons between groups of observations.
+* For example you might want to find out in what words tend to appear within the same section
+
+```{r, echo=TRUE}
+austen_section_words <- austen_books() %>%
+  filter(book == "Pride & Prejudice") %>%
+  mutate(section = row_number() %/% 10) %>%
+  filter(section > 0) %>%
+  unnest_tokens(word, text) %>%
+  filter(!word %in% stop_words$word)
+
+austen_section_words
+```
+* Or we can have the pairwise count as well that will count pairs of words co-appearing within the same section
+
+```{r, echo=TRUE}
+
+# count words co-occuring within sections
+word_pairs <- austen_section_words %>%
+  pairwise_count(word, section, sort = TRUE)
+
+word_pairs
+```
+
+## Correlations
+
+* We can see how often words appear together relative to how often they appear separately.
+* Phi Coefficient: Common measure of binary correlation
+    + How much more likely it is that either *both* word X and Y appear or *neither* do, than that one appears without the other.
+    + Same as the Person correlation (binary data)
+    + Use funciton: pairwise_cor() to find phi coefficient
+    
+```{r, echo=TRUE}
+
+# we need to filter for at least relatively common words first
+word_cors <- austen_section_words %>%
+  group_by(word) %>%
+  filter(n() >= 20) %>%
+  pairwise_cor(word, section, sort = TRUE)
+
+word_cors
+
+```
+* To look for words associated with other words of interest
+
+```{r, echo=TRUE}
+
+word_cors %>%
+  filter(item1 %in% c("elizabeth", "pounds", "married", "pride")) %>%
+  group_by(item1) %>%
+  top_n(6) %>%
+  ungroup() %>%
+  mutate(item2 = reorder(item2, correlation)) %>%
+  ggplot(aes(item2, correlation)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ item1, scales = "free") +
+  coord_flip()
+
+```
+
+* Use ggraph to visualize correlations between bigrams
+
+
+```{r, echo=TRUE}
+word_cors %>%
+  filter(correlation > .15) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = correlation), show.legend = FALSE) +
+  geom_node_point(color = "lightblue", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  theme_void()
+```
+
+# NON-TIDY TEXT
+
+## DOCUMENT TERM MATRIX (DTM)
+
+* DTM: Structure:
+    + Each Row is a Document
+    + Each Column is a Term
+    + Each Value is a number of appearances of that term in a ducument
+* To convert between tidy and non use 
+    + tidy(): turns DTM into tidy data frame.
+    + cast(): turns tidy into matrix
+        - cast_sparse(): sparse matrix
+        - cast_dtm(): DTM
+        - cast_dfm(): converts DTM into quanteda
+        
+## DTM Continued (tm package)
+
+* Get associated press docuemnt as data
+* Look at Sparsity... pairs are zero.
+* 
+```{r, echo=TRUE}
+#pull data
+data("AssociatedPress", package = "topicmodels")
+AssociatedPress
+#distinct terms
+terms <- Terms(AssociatedPress)
+head(terms)
+#Here only non-zero values are given
+ap_td <- tidy(AssociatedPress)
+ap_td
+```
+
+# Topic Modeling
+
+## Topic Modeling: Intro
+* Package *topicmodeling*:
+    + Requires the data input in the form of DTM but produces models that can be tidied.
+
+## Latnet Dirichlet allocation
+
+* We assume that every document is a mixture of topics
+* Every topic is a mixture of words
+* *LDA*:
+    + Finds mixture of words associated with each topic
+    + Determines mixture of topics that describes each document
+    
+```{r, echo=TRUE}
+
+data("AssociatedPress")
+AssociatedPress
+
+#Now use k=2 as a parameter of LDA() to create  a model with two topics
+
+ap_lda <- LDA(AssociatedPress, k = 2, control = list(seed = 1234))
+ap_lda
+
+```
+## Topic Modeling: Word-Topic Probability
+
+* *tidytext* method can extract per-topic-per-word probabilities known as B (*Beta*)
+* Model:
+    + one-topic-per-term-per-row format
+    + For each combination the model computes probability of the term being generated from that topic
+```{r, echo=TRUE}
+#This extracts per topic per word probabilities
+ap_topics <- tidy(ap_lda, matrix = "beta")
+ap_topics
+
+```
+
+* Generate top 10 most common terms per topic.
+```{r, echo=TRUE}
+
+ap_top_terms <- ap_topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+ap_top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+* Or find terms that have greatest difference in *B* between the two topics
+    + Determined by: *log*2(*B2*/*B1*)-----log makes difference symmetrical.
+        - *B2* being twice as large leads to a log ratio of 1
+        - *B1* being twice as large leads to a log ratio of -1
+    + Constrain it to set of relevant word, filter for relatively common words where *B* is greater than 1/1000 in at least one topic
+    
+```{r, echo=TRUE}
+beta_spread <- ap_topics %>%
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>%
+  filter(topic1 > .001 | topic2 > .001) %>%
+  mutate(log_ratio = log2(topic2 / topic1))
+beta_spread
+
+```
+
+* Now we can visualize words with greatest difference in B between topics
+
+## Topic Modeling: Document-Topic Probabilities
+
+* Structure:
+    + per-document-per-topic probabilities *gamma*
+    + Values are an estimated proportion of words from that document that are generated from that topic
+    
+```{r, echo= TRUE}
+ap_documents <- tidy(ap_lda, matrix = "gamma")
+ap_documents
+
+```
+* To check the most common words in the document
+```{r, echo= TRUE}
+
+tidy(AssociatedPress) %>%
+  filter(document == 6) %>%
+  arrange(desc(count))
+
+```
+
+## Topic Modeling: Grouping Text Example (Library Heist)
+
+* You have **4** books that need to be put together by individual chapters
+* We can see how chapters cluster together into distinct topics each of them representing one of the books.
+
+```{r, echo=TRUE}
+titles <- c("Twenty Thousand Leagues under the Sea", "The War of the Worlds",
+            "Pride and Prejudice", "Great Expectations")
+
+books <- gutenberg_works(title %in% titles) %>%
+  gutenberg_download(meta_fields = "title")
+
+# separate chapters into words and remove stop words
+
+by_chapter <- books %>%
+  group_by(title) %>%
+  mutate(chapter = cumsum(str_detect(text, regex("^chapter ", ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  filter(chapter > 0) %>%
+  unite(document, title, chapter)
+
+# split into words
+by_chapter_word <- by_chapter %>%
+  unnest_tokens(word, text)
+
+# find document-word counts
+word_counts <- by_chapter_word %>%
+  anti_join(stop_words) %>%
+  count(document, word, sort = TRUE) %>%
+  ungroup()
+
+word_counts
+```
+## Topic Modeling: LDA on chapters
+* First push data into DTM format
+* Then use LDA function to creat4 four-topic model. 
+```{r, echo=TRUE}
+chapters_dtm <- word_counts %>%
+  cast_dtm(document, word, n)
+
+chapters_dtm
+
+#Since we have four books.. we should have set k parameter to 4
+chapters_lda <- LDA(chapters_dtm, k = 4, control = list(seed = 1234))
+chapters_lda
+
+
+```
+
+* Now examine per-topic-per-word probabilities.
+
+
+```{r, echo=TRUE}
+#For each combination the model computes the probability of that term being generated from that topic
+chapter_topics <- tidy(chapters_lda, matrix = "beta")
+chapter_topics#Joe in this case has zero probability of being in book 1-3 but actually 1.45 percent probability from being in book four!
+
+```
+* Now find top 5 terms within each topic
+* Visualization
+```{r, echo=TRUE}
+
+top_terms <- chapter_topics %>%
+  group_by(topic) %>%
+  top_n(5, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms
+#Visualization
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+## Topic Modeling: PER-DOCUMENT CLASSIFICATION
+
+* If we want to find out which topics are associated with each document.
+    + Use *gamma*  to examine per-document-per-topic probabilitities.
+    
+```{r, echo=TRUE}
+# Find ESTIMATED proportion of words from that document generated from topic
+chapters_gamma <- tidy(chapters_lda, matrix = "gamma")
+chapters_gamma
+
+# Now separate the document name into title and chapter and then visualize the per-document-per-topic probability for each
+chapters_gamma <- chapters_gamma %>%
+  separate(document, c("title", "chapter"), sep = "_", convert = TRUE)
+
+chapters_gamma
+
+# reorder titles in order of topic 1, topic 2, etc before plotting
+chapters_gamma %>%
+  mutate(title = reorder(title, gamma * topic)) %>%
+  ggplot(aes(factor(topic), gamma)) +
+  geom_boxplot() +
+  facet_wrap(~ title)
+
+
+
+```
+* Looking at the graph above we see that only *Great Expectations* had some chapters that were associated with other topics.
+
+* NOW LOOK AT MISCLASSIFICATION:
+```{r, echo=TRUE}
+chapter_classifications <- chapters_gamma %>%
+  group_by(title, chapter) %>%
+  top_n(1, gamma) %>%
+  ungroup()
+
+chapter_classifications
+
+book_topics <- chapter_classifications %>%
+  count(title, topic) %>%
+  group_by(title) %>%
+  top_n(1, n) %>%
+  ungroup() %>%
+  transmute(consensus = title, topic)
+
+chapter_classifications %>%
+  inner_join(book_topics, by = "topic") %>%
+  filter(title != consensus)
+``` 
+
+## Topic Modeling: AUGMENT (BY WORD ASSIGNMENTS)
+
+* The more words in a docuemnt assigned to a topic the more weight(gamma) will go on that docuemnt-topic classification.
+* Function *augment()* adds information to each raw data observation ".topic"
+```{r, echo=TRUE}
+
+assignments <- augment(chapters_lda, data = chapters_dtm)
+assignments
+#look for titles that were misclassified 
+#title=true book vs concensus(assigned)
+assignments <- assignments %>%
+  separate(document, c("title", "chapter"), sep = "_", convert = TRUE) %>%
+  inner_join(book_topics, by = c(".topic" = "topic"))
+assignments
+
+```
+
+* Create a confusion matrix showing how often owrds fron one book were assigned to another
+
+```{r, echo=TRUE}
+assignments %>%
+  count(title, consensus, wt = count) %>%
+  group_by(title) %>%
+  mutate(percent = n / sum(n)) %>%
+  ggplot(aes(consensus, title, fill = percent)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "red", label = percent_format()) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank()) +
+  labs(x = "Book words were assigned to",
+       y = "Book words came from",
+       fill = "% of assignments")
+
+```
+
+* From the confusion matrix above:
+    + 'Almost all the words for Pride and Prejudice, Twenty Thousand Leagues Under the Sea, and War of the Worlds were correctly assigned, while Great Expectations had a fair number of misassigned words (which, as we saw above, led to two chapters getting misclassified)'
+
+* Now look at the wrong words only:
+```{r, echo=TRUE}
+
+wrong_words <- assignments %>%
+  filter(title != consensus)
+wrong_words
+
+
+wrong_words %>%
+  count(title, consensus, term, wt = count) %>%
+  ungroup() %>%
+  arrange(desc(n))
+
+```
+
+### WHAT I NEED:
+* SQL Management Studio 2016
+* R Studio
+* R 
+
+
+
+
 
 
