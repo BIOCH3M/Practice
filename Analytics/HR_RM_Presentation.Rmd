@@ -62,7 +62,7 @@ library(plotly)
 ### Number of Records
 
 ```{r}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+data<-read.csv("//at2a5/vol1/LOGISTIC/DFDM/Alex/ADHOC/Exports/HR_DATA.csv")
 numrow <- nrow(data)
 valueBox(numrow, icon = "fa-pencil")
 ```
@@ -70,7 +70,7 @@ valueBox(numrow, icon = "fa-pencil")
 ### Number of Variables
 
 ```{r,echo=FALSE}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+
 numcol<- ncol(data)
 valueBox(numcol, icon = "fa-pencil")
 
@@ -84,7 +84,6 @@ valueBox(numcol, icon = "fa-pencil")
 Quick Look and Summary of HR data
 
 ```{r, echo=FALSE}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
 head(data)
 summary(data)
 ```
@@ -98,7 +97,7 @@ to factors.
 ### Salary
 
 ```{r}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+
 pie.sal<-as.character(data$salary)
 
 hchart(pie.sal, type = "pie")
@@ -108,7 +107,7 @@ hchart(pie.sal, type = "pie")
 ### Sales
 
 ```{r}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv")
+
 pie.sale<-as.character(data$sales)
 
 hchart(pie.sale, type = "pie")
@@ -119,7 +118,7 @@ hchart(pie.sale, type = "pie")
 ## Data Exploration: Insight
 
 ```{r}
-data<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv") %>% mutate(left = ifelse(left==1, "Left", "Stayed"))
+data<- %>% mutate(left = ifelse(left==1, "Left", "Stayed"))
 hcboxplot(x = data$satisfaction_level,var= data$salary, var2 = data$left,
           outliers = FALSE) %>% 
   hc_chart(type = "column") %>% # to put box vertical
@@ -384,7 +383,7 @@ ter.table<-data.frame(Classifier= models,TER_ALL = ter.result) %>% arrange(TER_A
 ```{r, echo=FALSE, include = FALSE}
 #FINAL PREDICTION USING BAGGED TREES model and run on data which includes only "Good People"
 
-data.2<-read.csv("/Users/asurin/Documents/GITHUB_PUBLIC/HR_comma_sep.csv") %>% filter (last_evaluation >= 0.80 & time_spend_company >= 3 & number_project >= 3)
+data.2<-data %>% filter (last_evaluation >= 0.80 & time_spend_company >= 3 & number_project >= 3)
 
 refcols <- c("left")
 #bringing respnonse variable 'left' to the end of the data.2frame
